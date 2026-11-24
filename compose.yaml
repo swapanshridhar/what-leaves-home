@@ -1,0 +1,19 @@
+# docker compose up -d, then open http://<this machine's address>:8080
+# With no settings it shows demo devices. Put your AdGuard Home details in
+# a .env file (copy .env.example) to see your own network.
+services:
+  whatleaves:
+    build: .
+    image: whatleaves:local
+    container_name: whatleaves
+    restart: unless-stopped
+    ports:
+      - "8080:8080"
+    env_file:
+      - path: .env
+        required: false
+    volumes:
+      - whatleaves-data:/data
+
+volumes:
+  whatleaves-data:
