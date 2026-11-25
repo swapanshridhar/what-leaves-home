@@ -73,6 +73,10 @@ class Analysis(unittest.TestCase):
         self.assertEqual(by["Kitchen speaker"]["maker"], "Speaker Co.")  # a vendor's time server doesn't hide the vendor
         self.assertTrue(any("never looked up" in r["text"] for r in by["Doorbell camera"]["reasons"]))
         self.assertTrue(any("unencrypted" in r["text"] for r in by["Living room TV"]["reasons"]))
+        # An address with no lookup is named for its host, and isn't also counted as another company.
+        cam = analysis.device_view(store, owners, by["Doorbell camera"]["client"], DemoSource.SITE_NAMES)
+        self.assertIn("Unknown service on Unknown Hosting Ltd", [c["company"] for c in cam["companies"]])
+        self.assertFalse(any("Unknown service" in r["text"] for r in cam["reasons"] if "besides" in r["text"]))
 
     def test_running_totals_are_not_double_counted(self):
         store = Store(":memory:")

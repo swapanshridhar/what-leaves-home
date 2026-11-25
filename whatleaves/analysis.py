@@ -64,7 +64,8 @@ def companies_for(raw, owners, site_names=None):
     def entry(name):
         return comps.setdefault(name, {"company": name, "domains": {}, "lookups": 0, "bytes_out": 0,
                                        "bytes_in": 0, "connections": 0, "hosting": set(), "countries": set(),
-                                       "tracking": False, "time": False, "addresses": set()})
+                                       "tracking": False, "time": False, "addresses": set(),
+                                       "unexplained": False})
 
     for l in raw["lookups"]:
         s = l["site"]
@@ -79,8 +80,10 @@ def companies_for(raw, owners, site_names=None):
         if c["names"]:
             name = company_for_site(site(c["names"][0]), site_names)
         else:
-            name = owner or "Unknown owner"
+            # No lookup: the owner of the address is only who hosts it, not who the service is.
+            name = f"Unknown service on {owner}" if owner else "Unknown owner"
         e = entry(name)
+        e["unexplained"] = not c["names"]
         e["bytes_out"] += c["bytes_out"]
         e["bytes_in"] += c["bytes_in"]
         e["connections"] += c["connections"]
@@ -106,7 +109,8 @@ def assess(raw, comps):
     """Score, grade, verdict and the reasons, good and bad."""
     score, reasons = 100, []
     tracking = [c for c in comps if c["tracking"]]
-    makers = [c for c in comps if not c["tracking"] and not c["time"] and c["company"] != "Unknown owner"]
+    # Unexplained destinations are counted once, below, not as extra companies.
+    makers = [c for c in comps if not c["tracking"] and not c["time"] and not c["unexplained"]]
     maker = makers[0]["company"] if makers else ""
     others = [c for c in makers[1:]]
     unexplained = [c for c in raw["connections"] if not c["local"] and not c["names"]]
