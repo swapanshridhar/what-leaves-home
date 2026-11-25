@@ -1,5 +1,7 @@
 # What Leaves Home
 
+**See what every device in your home sends out.**
+
 What Leaves Home shows what each device, and each app on your home servers, talks to on the internet: which companies, from which countries, how much data, and whether any of it is ads or tracking. It works on top of the AdGuard Home or Pi-hole you already run, changes nothing on your network, and keeps everything on your own machine.
 
 Status: early (0.8). Grades are a first version: simple rules, always shown with their reasons.
