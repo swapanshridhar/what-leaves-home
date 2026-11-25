@@ -1,10 +1,27 @@
 # What Leaves Home
 
-What Leaves Home shows what each device on your home network talks to on the internet: which names it looks up, which servers it connects to, and how much data it sends. It reads the logs you already have (AdGuard Home) and changes nothing on your network.
+What Leaves Home shows what each device, and each app on your home servers, talks to on the internet: which companies, from which countries, how much data, and whether any of it is ads or tracking. It works on top of the AdGuard Home or Pi-hole you already run, changes nothing on your network, and keeps everything on your own machine.
 
-It runs on your own machine. Nothing is sent anywhere.
+Status: early (0.7). Grades are a first version: simple rules, always shown with their reasons.
 
-Status: early (0.6). Grades are a first version: simple rules, always shown with their reasons.
+## What you get
+
+- **A verdict per device, in plain words.** An A to F grade with the reasons ("Contacted ad or tracking services 400 times", "Every connection was encrypted", "Talks only to LG"), and the one finding worth looking at first.
+- **Companies and countries, not IP addresses.** "LG, hosted on Amazon Web Services, US", with the exact names and addresses one click away. Destinations nothing looked up are still labelled by what they are ("Time server", "Encrypted messaging", "Tailscale relays").
+- **What to do about it.** Ready-to-paste block rules for AdGuard Home or Pi-hole for the trackers that got through, plus a firmware or settings nudge where it fits. The overview gathers one block list for the whole home.
+- **Your home servers, app by app.** A small agent on each server tells apart which container or service phones home to whom: Jellyfin, Home Assistant, the media apps, anything in Docker or systemd.
+- **Honesty about itself.** A "This app" page lists every network request What Leaves Home makes. In normal use that's your DNS filter and one monthly download of a public address-ownership list. No telemetry, no update checks, nothing loaded from outside.
+- **Set-up that ends in a result.** A first-run guide ends with "point one device here" and shows it on screen as soon as it arrives. It spots when your router is hiding your devices, and explains the fix for your kind of router.
+
+## How it's different
+
+There are good tools near this space. What Leaves Home is built to be the layer they leave out:
+
+- **Not another DNS dashboard.** DNS filter dashboards list raw lookups; this turns them into verdicts, companies and next steps, on top of the filter you already trust. It doesn't replace your DNS server.
+- **Your traffic stays home.** Some tools in this area send what they collect to a server elsewhere for analysis. This one keeps everything on your machine, and shows you its own traffic to prove it.
+- **No hardware to buy.** It runs on any always-on machine you already have (a Raspberry Pi, a NAS, an old PC, Home Assistant's host), unlike the paid boxes that do similar things.
+- **Self-hosted apps, not just gadgets.** Per-service visibility on your own servers is the part people usually piece together from command-line tools. Here it's one command per server and a page per app.
+- **Honest about limits.** DNS-based tools can't see devices that use hard-coded or encrypted DNS, or devices hidden behind a router that answers DNS for everyone. The app says when that's happening, and the agent's connection data fills some of the gap.
 
 **Try the live demo in your browser:** made-up devices, nothing to install. The link appears here once the project is published (it's built from `tools/build_demo.py` by `.github/workflows/pages.yml`).
 
@@ -38,11 +55,11 @@ What Leaves Home reads AdGuard's log file directly, so there's no second login t
 
 If port 53 is already in use on a Debian or Ubuntu machine, the system's own DNS stub is holding it. AdGuard's documentation describes the fix ("Docker: port 53 is in use"): turn off `DNSStubListener` in systemd-resolved.
 
-### Already have AdGuard Home? Connect it
+### Already have AdGuard Home or Pi-hole? Connect it
 
-On the page, click **Connect** (or Settings → Data source), enter AdGuard's address (the one you open its web page at, with the port) and its login, press **Test**, then **Save**. The test also warns you when nearly every lookup comes from one address, your router.
+On the page, click **Connect** (or Settings → Data source), choose AdGuard Home or Pi-hole, enter its address (the one you open its web page at) and its login, press **Test**, then **Save**. For Pi-hole 6, use an app password from Settings → Web interface / API. (Pi-hole 5 isn't supported.) The test also warns you when nearly every lookup comes from one address, your router.
 
-Or put it in a file: `cp .env.example .env`, fill in `WL_ADGUARD_URL`, `WL_ADGUARD_USER` and `WL_ADGUARD_PASSWORD`, and `docker compose up -d`.
+Or put it in a file: `cp .env.example .env`, fill in `WL_ADGUARD_URL`, `WL_ADGUARD_USER` and `WL_ADGUARD_PASSWORD` (or `WL_PIHOLE_URL` and `WL_PIHOLE_PASSWORD`), and `docker compose up -d`. Pi-hole's log doesn't include the addresses it answered, so with Pi-hole, connections from the agent or collector are named less often.
 
 Some routers ship their own build of AdGuard Home that only accepts the router's admin session (GL.iNet is one). Read its log file instead: see [docs/collector.md](docs/collector.md).
 
@@ -83,6 +100,7 @@ All settings are environment variables, in `.env` when using Docker.
 |---|---|---|
 | `WL_ADGUARD_URL` | AdGuard Home's address | |
 | `WL_ADGUARD_USER`, `WL_ADGUARD_PASSWORD` | Its login. `WL_ADGUARD_PASSWORD_FILE` reads the password from a file instead | |
+| `WL_PIHOLE_URL`, `WL_PIHOLE_PASSWORD` | Pi-hole 6 instead (app password). `WL_PIHOLE_PASSWORD_FILE` reads it from a file | |
 | `WL_FILES_DIR` | Read collector files from this folder instead of the API ([docs/collector.md](docs/collector.md)) | |
 | `WL_DEMO` | `1` shows demo devices | on when nothing else is set |
 | `WL_NAMES` | Friendly names, like `192.168.1.20=Living room TV,192.168.1.21=Speaker` | names AdGuard knows |
@@ -167,7 +185,6 @@ Standard library only. The page is `whatleaves/static/`; the grading is `whatlea
 ## Planned
 
 - Better grades: device types, known trackers per device type, DNS that bypasses your filter
-- Pi-hole as a source
 - A ready-made image on GitHub's container registry (the workflow is in `.github/workflows/`)
 
 ## Licence

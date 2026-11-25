@@ -262,6 +262,59 @@ class Connect(unittest.TestCase):
             srv.shutdown()
 
 
+class FakePihole(BaseHTTPRequestHandler):
+    queries = []
+
+    def log_message(self, *a):
+        pass
+
+    def _send(self, code, obj):
+        self.send_response(code)
+        self.end_headers()
+        self.wfile.write(json.dumps(obj).encode())
+
+    def do_POST(self):
+        body = json.loads(self.rfile.read(int(self.headers["Content-Length"])))
+        ok = body.get("password") == "app-pw"
+        self._send(200 if ok else 401, {"session": {"valid": ok, "sid": "sid123" if ok else None}})
+
+    def do_GET(self):
+        if self.headers.get("X-FTL-SID") != "sid123":
+            return self._send(401, {"error": {"key": "unauthorized"}})
+        url = urllib.parse.urlparse(self.path)
+        q = dict(urllib.parse.parse_qsl(url.query))
+        if url.path == "/api/info/version":
+            return self._send(200, {"version": {"core": {"local": {"version": "v6.3"}}}})
+        rows = [e for e in self.queries if float(q["from"]) <= e["time"] <= float(q["until"])]
+        start, length = int(q.get("start", 0)), int(q["length"])
+        self._send(200, {"queries": rows[start:start + length]})
+
+
+class Pihole(unittest.TestCase):
+    def test_reads_queries_names_and_blocks(self):
+        from whatleaves.sources import PiholeSource, test_pihole
+        import time
+        now = time.time()
+        FakePihole.queries = [{"time": now - 60 + i * 0.01, "type": "A", "domain": f"n{i}.example.com",
+                               "status": "GRAVITY" if i % 5 == 0 else "FORWARDED",
+                               "client": {"ip": "192.168.1.40", "name": "living-room-tv"}} for i in range(1500)]
+        srv = HTTPServer(("127.0.0.1", 0), FakePihole)
+        threading.Thread(target=srv.serve_forever, daemon=True).start()
+        try:
+            url = f"http://127.0.0.1:{srv.server_port}"
+            store = Store(":memory:")
+            src = PiholeSource(url, "app-pw")
+            self.assertEqual(src.poll(store), 1500)  # two pages
+            self.assertEqual(src.poll(store), 0)
+            [d] = store.devices()
+            self.assertEqual(d["name"], "living-room-tv")
+            self.assertEqual(sum(l["blocked"] for l in store.device("192.168.1.40")["lookups"]), 300)
+            self.assertTrue(test_pihole(url, "app-pw")["ok"])
+            self.assertFalse(test_pihole(url, "wrong")["ok"])
+        finally:
+            srv.shutdown()
+
+
 class Login(unittest.TestCase):
     def test_hashing(self):
         h = hash_password("correct horse")

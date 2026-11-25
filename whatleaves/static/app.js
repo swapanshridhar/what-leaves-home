@@ -213,8 +213,8 @@ function renderOverview(o) {
   const rules = o.block_rules || [];
   const blockCard = rules.length ? `<h2>What your home could block <small>ad and tracking services, across everything</small></h2>
     <div class="card pad">
-      <p style="margin-top:0">${plural(rules.length, "ad or tracking service")} reached by your devices and services. Paste these into AdGuard Home under <b>Filters → Custom filtering rules</b>. Blocking can switch off some free extras; remove a line if something stops working.</p>
-      ${cmdBlock("AdGuard rules", rules.map((r) => r.rule).join("\n"))}
+      <p style="margin-top:0">${plural(rules.length, "ad or tracking service")} reached by your devices and services. ${isPihole() ? "Add these to Pi-hole's denylist" : "Paste these into AdGuard Home under <b>Filters → Custom filtering rules</b>"}. Blocking can switch off some free extras; remove a line if something stops working.</p>
+      ${rulesBlock(rules.map((r) => r.rule))}
       <div class="chips">${rules.slice(0, 12).map((r) => `<span class="chip bad mono">${esc(r.rule)}</span><span class="muted" style="font-size:12px;align-self:center">${esc(r.used_by.join(", "))}</span>`).join("")}</div>
       ${adguardLink()}
     </div>` : "";
@@ -236,9 +236,19 @@ function renderOverview(o) {
     ${flow ? `<h2>Where your data goes <small>data sent, by company</small></h2>${flow}` : ""}
   </section>`;
 }
+// AdGuard takes "||domain^" rules; Pi-hole takes plain domains added as wildcard denies.
+const isPihole = () => statusCache?.source === "pihole";
+function rulesBlock(rules) {
+  return isPihole()
+    ? cmdBlock("Domains for Pi-hole", rules.map((r) => r.replace(/^\|\|/, "").replace(/\^$/, "")).join("\n"),
+               "In Pi-hole: Domains → add each as a <b>wildcard</b> deny (or paste the list into a local adlist).")
+    : cmdBlock("AdGuard rules", rules.join("\n"));
+}
 function adguardLink() {
   const u = statusCache?.adguard_url || (statusCache?.adguard_ui_port ? `${location.protocol}//${location.hostname}:${statusCache.adguard_ui_port}` : "");
-  return u ? `<p style="margin-bottom:0"><a href="${esc(u)}/#custom_rules" target="_blank" rel="noopener">Open AdGuard's custom rules →</a></p>` : "";
+  if (!u) return "";
+  return isPihole() ? `<p style="margin-bottom:0"><a href="${esc(u)}/admin/groups/domains" target="_blank" rel="noopener">Open Pi-hole's domains →</a></p>`
+    : `<p style="margin-bottom:0"><a href="${esc(u)}/#custom_rules" target="_blank" rel="noopener">Open AdGuard's custom rules →</a></p>`;
 }
 
 function tile(d) {
@@ -413,7 +423,7 @@ function renderDevice(d) {
 function actionCard(a) {
   const ico = { bad: ICON.alert, warn: ICON.alert, good: ICON.check, info: ICON.globe }[a.level] || ICON.check;
   return `<div class="card pad action ${a.level}"><div class="at"><span class="ico">${ico}</span><b>${esc(a.title)}</b></div>
-    <p>${esc(a.text)}</p>${a.rules.length ? cmdBlock("AdGuard rules", a.rules.join("\n")) + adguardLink() : ""}</div>`;
+    <p>${esc(isPihole() ? a.text.replace("Paste these rules into AdGuard Home under Filters → Custom filtering rules.", "Add these to Pi-hole's denylist.") : a.text)}</p>${a.rules.length ? rulesBlock(a.rules) + adguardLink() : ""}</div>`;
 }
 function wireDevice() {
   const btn = $("#rename");
@@ -628,13 +638,15 @@ function demoOnly(title) {
 function renderConnect() {
   if (window.WL_DEMO) return demoOnly("Connect your AdGuard Home");
   if (!statusCache?.configurable) return `<section><h1>Connect AdGuard Home</h1><div class="card pad">The source is set by environment settings (.env), so it's changed there, not here.</div></section>`;
-  return `<section><h1>Connect your AdGuard Home</h1>
-    <p class="lede">What Leaves Home reads AdGuard's query log. It only reads; it changes nothing in AdGuard.</p>
+  return `<section><h1>Connect your DNS filter</h1>
+    <p class="lede">What Leaves Home reads your DNS filter's query log. It only reads; it changes nothing there.</p>
     <div class="cols">
       <form class="card pad form" id="cform" style="max-width:none">
-        <label>AdGuard Home address<input name="url" placeholder="http://192.168.1.2:3000" value="${esc(statusCache.adguard_url || "")}" required></label>
-        <label>Username<input name="user" autocomplete="off"></label>
-        <label>Password<input type="password" name="password" autocomplete="off"></label>
+        <div class="seg" role="radiogroup" aria-label="Which DNS filter"><button type="button" data-t="adguard" aria-pressed="true">AdGuard Home</button><button type="button" data-t="pihole" aria-pressed="false">Pi-hole</button></div>
+        <input type="hidden" name="type" value="adguard">
+        <label><span id="urllabel">AdGuard Home address</span><input name="url" placeholder="http://192.168.1.2:3000" value="${esc(statusCache.adguard_url || "")}" required></label>
+        <label id="userrow">Username<input name="user" autocomplete="off"></label>
+        <label><span id="pwlabel">Password</span><input type="password" name="password" autocomplete="off"></label>
         <div style="display:flex;gap:10px"><button class="btn ghost" type="button" id="ctest">Test</button><button class="btn" id="csave" disabled>Save and start reading</button></div>
         <div class="msg" id="cmsg"></div>
       </form>
@@ -649,11 +661,21 @@ function renderConnect() {
 function wireConnect() {
   const form = $("#cform");
   if (!form) return;
+  form.querySelectorAll(".seg button").forEach((b) => b.addEventListener("click", () => {
+    const ph = b.dataset.t === "pihole";
+    form.querySelectorAll(".seg button").forEach((x) => x.setAttribute("aria-pressed", x === b));
+    form.elements.type.value = b.dataset.t;
+    $("#urllabel").textContent = ph ? "Pi-hole address" : "AdGuard Home address";
+    form.elements.url.placeholder = ph ? "http://192.168.1.2" : "http://192.168.1.2:3000";
+    $("#userrow").classList.toggle("hidden", ph);
+    $("#pwlabel").textContent = ph ? "App password (Pi-hole → Settings → Web interface / API)" : "Password";
+    $("#csave").disabled = true;
+  }));
   const data = () => Object.fromEntries(new FormData(form));
   const show = (r) => {
     const m = $("#cmsg");
     m.className = "msg " + (r.ok ? "ok" : "err");
-    m.textContent = r.ok ? `Connected to AdGuard Home ${r.version}: ${r.lookups} recent lookups from ${plural(r.clients, "address", "addresses")}.` : r.message;
+    m.textContent = r.ok ? `Connected to ${/^Pi-hole/.test(r.version) ? r.version : "AdGuard Home " + r.version}: ${r.lookups} recent lookups from ${plural(r.clients, "address", "addresses")}.` : r.message;
     $("#csave").disabled = !r.ok;
     $("#cresult").innerHTML = r.ok && r.router_suspect ? `<div class="finding check" style="margin-top:16px"><span class="ico">${ICON.alert}</span><span>
       <div class="k">Heads up</div><div class="t">${Math.round(r.top_share * 100)}% of lookups come from one address (${esc(r.top_client)}): probably your router.</div>

@@ -3,6 +3,8 @@
   WL_ADGUARD_URL        AdGuard Home address, e.g. http://192.168.1.2:3000
   WL_ADGUARD_USER       its username
   WL_ADGUARD_PASSWORD   its password (or WL_ADGUARD_PASSWORD_FILE)
+  WL_PIHOLE_URL         Pi-hole 6 address instead, e.g. http://192.168.1.2
+  WL_PIHOLE_PASSWORD    its app password (or WL_PIHOLE_PASSWORD_FILE)
   WL_FILES_DIR          read collector files from this folder instead
   WL_ADGUARD_LOG        read AdGuard's querylog.json directly (no login; the all-in-one compose
                         uses this), alone or alongside one of the sources above
@@ -35,7 +37,8 @@ from . import __version__, net, scan
 from .auth import Auth
 from .enrich import Owners
 from .server import App, serve
-from .sources import AdGuardLogSource, AdGuardSource, DemoSource, FilesSource, SourceHolder, Sources
+from .sources import (AdGuardLogSource, AdGuardSource, DemoSource, FilesSource, PiholeSource, SourceHolder,
+                      Sources)
 from .store import Store
 
 
@@ -44,7 +47,7 @@ def env(name, default=""):
 
 
 def configured_by_env():
-    return any(env(k) for k in ("WL_DEMO", "WL_FILES_DIR", "WL_ADGUARD_URL", "WL_ADGUARD_LOG"))
+    return any(env(k) for k in ("WL_DEMO", "WL_FILES_DIR", "WL_ADGUARD_URL", "WL_ADGUARD_LOG", "WL_PIHOLE_URL"))
 
 
 def pick_source(store):
@@ -58,7 +61,14 @@ def pick_source(store):
             password = open(env("WL_ADGUARD_PASSWORD_FILE")).read().strip()
         clients = [c.strip() for c in env("WL_CLIENTS").split(",") if c.strip()]
         return AdGuardSource(env("WL_ADGUARD_URL"), env("WL_ADGUARD_USER"), password, clients)
+    if env("WL_PIHOLE_URL"):
+        password = env("WL_PIHOLE_PASSWORD")
+        if env("WL_PIHOLE_PASSWORD_FILE"):
+            password = open(env("WL_PIHOLE_PASSWORD_FILE")).read().strip()
+        return PiholeSource(env("WL_PIHOLE_URL"), password)
     saved = json.loads(store.get_meta("adguard_config", "{}") or "{}")  # from the setup page
+    if saved.get("url") and saved.get("type") == "pihole":
+        return PiholeSource(saved["url"], saved.get("password", ""))
     if saved.get("url"):
         return AdGuardSource(saved["url"], saved.get("user", ""), saved.get("password", ""))
     return DemoSource()
@@ -79,7 +89,7 @@ def main():
     if env("WL_ADGUARD_LOG"):
         keep = [c.strip() for c in env("WL_ADGUARD_LOG_CLIENTS").split(",") if c.strip()]
         log_source = AdGuardLogSource(env("WL_ADGUARD_LOG"), keep)
-    if log_source and not any(env(k) for k in ("WL_DEMO", "WL_FILES_DIR", "WL_ADGUARD_URL")):
+    if log_source and not any(env(k) for k in ("WL_DEMO", "WL_FILES_DIR", "WL_ADGUARD_URL", "WL_PIHOLE_URL")):
         source = log_source  # the all-in-one setup: AdGuard's log is the source
     else:
         source = pick_source(store)
@@ -107,7 +117,7 @@ def main():
               "offline": offline, "auth": auth.enabled, "scan_hosts": scanning, "last_poll": None, "last_error": None,
               # The setup page may connect AdGuard only when no environment setting chose the source.
               "configurable": not configured_by_env(),
-              "adguard_url": env("WL_ADGUARD_URL") or saved.get("url", ""),
+              "adguard_url": env("WL_ADGUARD_URL") or env("WL_PIHOLE_URL") or saved.get("url", ""),
               # All-in-one: AdGuard's page is on this machine at this port (the page builds the link).
               "adguard_ui_port": env("WL_ADGUARD_UI_PORT")}
     wake = threading.Event()

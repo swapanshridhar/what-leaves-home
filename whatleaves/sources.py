@@ -11,6 +11,7 @@ import base64
 import json
 import os
 import random
+import urllib.error
 import urllib.parse
 from datetime import datetime, timedelta, timezone
 
@@ -121,6 +122,107 @@ class FilesSource:
         added = store.add_lookups(lookups) + store.add_conns(conns)
         store.set_meta("file_offsets", json.dumps(offsets))
         return added
+
+
+class PiholeSource:
+    """Pi-hole v6 (2025 onwards), through its REST API. Use an "app password" from Pi-hole's
+    Settings → Web interface / API, or its admin password. Pi-hole's query log has no
+    answer addresses, so connections can't be named from it; lookups, blocks and client
+    names come through."""
+    kind = "pihole"
+    PAGE = 1000
+    # Statuses that mean Pi-hole refused the lookup.
+    BLOCKED = {"GRAVITY", "DENYLIST", "REGEX", "GRAVITY_CNAME", "DENYLIST_CNAME", "REGEX_CNAME",
+               "EXTERNAL_BLOCKED_IP", "EXTERNAL_BLOCKED_NULL", "EXTERNAL_BLOCKED_NXRA", "SPECIAL_DOMAIN"}
+
+    def __init__(self, url, password=""):
+        self.url = url.rstrip("/")
+        self.password = password
+        self.sid = ""
+
+    def _auth(self):
+        if not self.password:
+            self.sid = ""  # Pi-hole with no password needs no session
+            return
+        body = json.dumps({"password": self.password}).encode()
+        data = json.loads(fetch(f"{self.url}/api/auth", "Sign in to Pi-hole's API", data=body,
+                                headers={"Content-Type": "application/json"}))
+        sess = data.get("session") or {}
+        if not sess.get("valid"):
+            raise PermissionError("Pi-hole refused that password")
+        self.sid = sess.get("sid") or ""
+
+    def _get(self, path, params, purpose="Read Pi-hole's query log"):
+        q = f"?{urllib.parse.urlencode(params)}"
+        for attempt in (0, 1):
+            if attempt or (self.password and not self.sid):
+                self._auth()
+            try:
+                return json.loads(fetch(f"{self.url}{path}{q}", purpose,
+                                        headers={"X-FTL-SID": self.sid} if self.sid else {}))
+            except urllib.error.HTTPError as e:
+                if e.code != 401 or attempt:
+                    raise
+        raise PermissionError("Pi-hole refused the session")
+
+    def poll(self, store):
+        import time as _t
+        since = float(store.get_meta("pihole_last", "0") or 0)
+        until = _t.time()
+        rows, start, newest = [], 0, since
+        while True:
+            page = self._get("/api/queries", {"from": int(since), "until": int(until) + 1,
+                                              "length": self.PAGE, "start": start})
+            qs = page.get("queries") or []
+            for e in qs:
+                t = float(e.get("time", 0))
+                if t <= since:
+                    continue
+                newest = max(newest, t)
+                client = e.get("client") or {}
+                rows.append({"time": datetime.fromtimestamp(t, timezone.utc).isoformat(),
+                             "client": client.get("ip", ""), "name": e.get("domain", ""),
+                             "qtype": e.get("type", ""), "upstream": e.get("upstream") or "",
+                             "answers": [], "blocked": str(e.get("status", "")).upper() in self.BLOCKED})
+                if client.get("name") and client.get("ip"):
+                    store.set_names({client["ip"]: client["name"]}, overwrite=False)
+            if len(qs) < self.PAGE:
+                break
+            start += len(qs)
+        added = store.add_lookups(rows)
+        store.set_meta("pihole_last", str(newest))
+        return added
+
+
+def test_pihole(url, password):
+    """Try a Pi-hole login and look at who its recent lookups come from. Never raises."""
+    import collections
+    import time as _t
+    src = PiholeSource(url, password)
+    try:
+        version = src._get("/api/info/version", {}, purpose="Test the connection to Pi-hole")
+        log = src._get("/api/queries", {"from": int(_t.time()) - 3600, "until": int(_t.time()) + 1, "length": 500},
+                       purpose="Test the connection to Pi-hole")
+    except PermissionError as exc:
+        return {"ok": False, "message": f"{exc}. Use an app password from Pi-hole's Settings → Web interface / API."}
+    except Exception as exc:
+        code = getattr(exc, "code", None)
+        if code in (401, 403):
+            msg = "Pi-hole refused that password. Use an app password from Settings → Web interface / API."
+        elif code == 404:
+            msg = "That address answered, but not like Pi-hole 6 (its API is /api). Older Pi-hole 5 isn't supported."
+        elif code:
+            msg = f"Pi-hole answered {code}. Is that the address of its web page?"
+        else:
+            msg = f"Couldn't reach it ({type(exc).__name__}). Check the address and port, e.g. http://192.168.1.2"
+        return {"ok": False, "message": msg}
+    clients = collections.Counter((e.get("client") or {}).get("ip", "") for e in log.get("queries") or [])
+    total = sum(clients.values())
+    top, top_n = (clients.most_common(1) or [("", 0)])[0]
+    share = top_n / total if total else 0
+    v = ((version.get("version") or {}).get("core") or {}).get("local") or {}
+    return {"ok": True, "version": "Pi-hole " + str(v.get("version", "")), "lookups": total, "clients": len(clients),
+            "top_client": top, "top_share": round(share, 2), "router_suspect": total >= 50 and share >= 0.8}
 
 
 def test_adguard(url, user, password):

@@ -9,7 +9,7 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
 from . import analysis
 from .auth import COOKIE, SESSION_DAYS
-from .sources import AdGuardSource, test_adguard
+from .sources import AdGuardSource, PiholeSource, test_adguard, test_pihole
 
 STATIC = os.path.join(os.path.dirname(__file__), "static")
 FILES = {"/": ("index.html", "text/html; charset=utf-8"),
@@ -182,16 +182,18 @@ def make_handler(app):
             if not url.startswith(("http://", "https://")):
                 url = "http://" + url
             user, password = str(body.get("user", "")), str(body.get("password", ""))
-            result = test_adguard(url, user, password)
+            pihole = body.get("type") == "pihole"
+            result = test_pihole(url, password) if pihole else test_adguard(url, user, password)
             if save and result["ok"] and app.holder:
-                app.store.set_meta("adguard_config", json.dumps({"url": url, "user": user, "password": password}))
+                app.store.set_meta("adguard_config", json.dumps({"type": "pihole" if pihole else "adguard",
+                                                                 "url": url, "user": user, "password": password}))
                 if app.holder.kind.startswith("demo"):
                     app.store.clear_data()  # the demo's made-up devices go
                     app.site_names = None
                     if app.owners:
                         app.owners.extra = []
-                app.holder.source = AdGuardSource(url, user, password)
-                app.status.update(source="adguard", adguard_url=url, last_error=None)
+                app.holder.source = PiholeSource(url, password) if pihole else AdGuardSource(url, user, password)
+                app.status.update(source=app.holder.kind, adguard_url=url, last_error=None)
                 if app.wake:
                     app.wake.set()
                 result["saved"] = True
