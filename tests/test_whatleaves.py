@@ -114,6 +114,27 @@ class Sources(unittest.TestCase):
             self.assertEqual(store.device("192.168.1.38")["connections"][0]["names"], ["cloud.vendor.com"])
 
 
+class AdGuardLog(unittest.TestCase):
+    def test_keeps_only_listed_clients_and_follows_rotation(self):
+        from whatleaves.sources import AdGuardLogSource
+        line = lambda ip, name, t: json.dumps({"T": t, "IP": ip, "QH": name, "QT": "A"}) + "\n"
+        with tempfile.TemporaryDirectory() as d:
+            log = os.path.join(d, "querylog.json")
+            with open(log, "w") as f:
+                f.write(line("192.168.1.10", "api.server.example", "2026-11-24T10:00:00Z"))
+                f.write(line("192.168.1.66", "someones-browsing.example", "2026-11-24T10:00:01Z"))
+            store, src = Store(":memory:"), AdGuardLogSource(log, ["192.168.1.10"])
+            self.assertEqual(src.poll(store), 1)
+            self.assertEqual([d["client"] for d in store.devices()], ["192.168.1.10"])  # nobody else stored
+            os.rename(log, log + ".1")  # AdGuard rotates
+            with open(log, "w") as f:
+                f.write(line("192.168.1.10", "update.server.example", "2026-11-24T11:00:00Z"))
+            self.assertEqual(src.poll(store), 1)
+            self.assertEqual(src.poll(store), 0)
+        with self.assertRaises(ValueError):
+            AdGuardLogSource("/x", [])
+
+
 class FakeAdGuard(BaseHTTPRequestHandler):
     log = []
 

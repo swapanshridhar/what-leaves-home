@@ -123,6 +123,65 @@ class FilesSource:
         return added
 
 
+class AdGuardLogSource:
+    """AdGuard Home's own query-log file (querylog.json, plus querylog.json.1 after a
+    rotation), read directly, keeping only the listed client addresses. Use it for
+    lookups the API can't give you, such as a home server's own lookups, without
+    storing anyone else's: other clients' lines are read past and dropped."""
+    kind = "adguard-log"
+
+    def __init__(self, path, clients):
+        self.path = path
+        self.clients = set(clients)
+        if not self.clients:
+            raise ValueError("WL_ADGUARD_LOG needs WL_ADGUARD_LOG_CLIENTS: which addresses to keep")
+
+    def poll(self, store):
+        # Position per file identity (inode), so a rotation (querylog.json -> .json.1) carries on
+        # where it left off instead of rereading.
+        state = json.loads(store.get_meta("adguard_log_inodes", "{}"))  # inode -> offset
+        rows, seen = [], {}
+        for path in (self.path + ".1", self.path):  # older file first
+            try:
+                st = os.stat(path)
+            except FileNotFoundError:
+                continue
+            offset = state.get(str(st.st_ino), 0)
+            if st.st_size < offset:
+                offset = 0  # truncated or replaced
+            with open(path, "rb") as f:
+                f.seek(offset)
+                chunk = f.read()
+            end = offset + chunk.rfind(b"\n") + 1
+            for line in chunk[:end - offset].splitlines():
+                if not any(c.encode() in line for c in self.clients):
+                    continue  # cheap skip before parsing: most lines are other people's
+                try:
+                    e = json.loads(line)
+                except ValueError:
+                    continue
+                if e.get("IP") not in self.clients or "QH" not in e:
+                    continue
+                rows.append({"time": e["T"], "client": e["IP"], "name": e["QH"], "qtype": e.get("QT", ""),
+                             "upstream": e.get("Upstream", ""), "answers": dnswire.answers(e.get("Answer")),
+                             "blocked": bool((e.get("Result") or {}).get("IsFiltered"))})
+            seen[str(st.st_ino)] = end
+        added = store.add_lookups(rows)
+        store.set_meta("adguard_log_inodes", json.dumps(seen))  # forget files that are gone
+        return added
+
+
+class Sources:
+    """Several sources polled together (for example collector files plus an AdGuard log)."""
+
+    def __init__(self, sources):
+        self.sources = sources
+        self.kind = " + ".join(s.kind for s in sources)
+
+    def poll(self, store):
+        return sum(s.poll(store) for s in self.sources)
+
+
 class DemoSource:
     """A day of made-up traffic from five imaginary devices, chosen to show
     every verdict. Names use the reserved .example domain and addresses come

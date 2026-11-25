@@ -4,6 +4,8 @@
   WL_ADGUARD_USER       its username
   WL_ADGUARD_PASSWORD   its password (or WL_ADGUARD_PASSWORD_FILE)
   WL_FILES_DIR          read collector files from this folder instead
+  WL_ADGUARD_LOG        also read AdGuard's querylog.json directly (as well as the above)...
+  WL_ADGUARD_LOG_CLIENTS  ...keeping only these addresses (required with it)
   WL_DEMO=1             show made-up devices (the default when nothing is set)
   WL_CLIENTS            only these client addresses, comma-separated
   WL_NAMES              friendly names: 192.168.1.20=TV,192.168.1.21=Speaker
@@ -31,7 +33,7 @@ from . import __version__, net, scan
 from .auth import Auth
 from .enrich import Owners
 from .server import App, serve
-from .sources import AdGuardSource, DemoSource, FilesSource
+from .sources import AdGuardLogSource, AdGuardSource, DemoSource, FilesSource, Sources
 from .store import Store
 
 
@@ -65,12 +67,15 @@ def main():
     store = Store(db)
     net.set_recorder(store.add_own_call)
     source = pick_source()
+    if env("WL_ADGUARD_LOG"):
+        keep = [c.strip() for c in env("WL_ADGUARD_LOG_CLIENTS").split(",") if c.strip()]
+        source = Sources([source, AdGuardLogSource(env("WL_ADGUARD_LOG"), keep)])
     keep_days = int(env("WL_KEEP_DAYS", "30"))
     every = int(env("WL_POLL_SECONDS", "300"))
     offline = env("WL_OFFLINE") == "1"
     store.set_names(parse_names(env("WL_NAMES")))
     owners = Owners(folder, enabled=not offline,
-                    extra_ranges=DemoSource.OWNER_RANGES if source.kind == "demo" else None)
+                    extra_ranges=DemoSource.OWNER_RANGES if source.kind.startswith("demo") else None)
     owners.start()
     auth = Auth(store, enabled=env("WL_AUTH", "on").lower() not in ("off", "0", "false", "no"),
                 preset_user=env("WL_USER"), preset_password=env("WL_PASSWORD"))
@@ -98,7 +103,7 @@ def main():
 
     threading.Thread(target=poll_forever, daemon=True).start()
     host, port = env("WL_HOST", "0.0.0.0"), int(env("WL_PORT", "8080"))
-    httpd = serve(App(store, status, auth, owners, DemoSource.SITE_NAMES if source.kind == "demo" else None, token),
+    httpd = serve(App(store, status, auth, owners, DemoSource.SITE_NAMES if source.kind.startswith("demo") else None, token),
                   host, port)
     login = "off" if not auth.enabled else ("open the page to create it" if auth.needs_setup() else "set")
     print(f"What Leaves Home {__version__}: source {source.kind}, login {login}, "
