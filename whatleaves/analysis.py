@@ -17,6 +17,9 @@ from .store import is_private
 RULE_SAFE = re.compile(r"^(?=.{1,253}$)[a-z0-9-]+(\.[a-z0-9-]+)+$")
 
 PLAINTEXT_PORTS = {80: "web (HTTP)", 21: "FTP", 23: "Telnet", 554: "video (RTSP)"}
+# Clouds that host other companies' services: reaching one says little on its own.
+CLOUD_PLATFORMS = {"Amazon Web Services", "Akamai", "Cloudflare", "Microsoft Azure", "Google Cloud", "Fastly",
+                   "DigitalOcean", "OVHcloud", "Hetzner", "Oracle Cloud", "Alibaba Cloud", "Tencent Cloud"}
 # Encrypted DNS services a device can use to skip the DNS your network hands out.
 DOH_NAMES = ("dns.google", "cloudflare-dns.com", "one.one.one.one", "dns.quad9.net", "doh.opendns.com",
              "dns.nextdns.io", "doh.dns.apple.com", "mozilla.cloudflare-dns.com")
@@ -196,8 +199,12 @@ def assess(raw, comps, server=False):
     tracking = [c for c in comps if c["tracking"] and c not in tried]
     # Unexplained destinations are counted once, below, not as extra companies.
     makers = [c for c in comps if not c["tracking"] and not c["time"] and not c["unexplained"]]
+    # A device maker's servers often run on a cloud platform (iRobot on AWS). The maker is the
+    # first company that isn't a platform; platforms it also reaches aren't counted as others.
+    own = [c for c in makers if c["company"] not in CLOUD_PLATFORMS]
+    makers = own + [c for c in makers if c not in own] if own else makers
     maker = makers[0]["company"] if makers else ""
-    others = [c for c in makers[1:]]
+    others = [c for c in makers[1:] if not (own and c["company"] in CLOUD_PLATFORMS)]
     bypass = outside_dns(raw)
     unexplained = [c for c in raw["connections"] if not c["local"] and not c["names"] and c not in bypass]
     plaintext = sorted({c["dport"] for c in raw["connections"]
@@ -297,7 +304,8 @@ def actions_for(raw, comps, a):
                      "text": f"It uploads about {human_bytes(a['per_day_out'])} a day. Cameras and vacuums do this "
                              "when cloud recording, backup or maps are on. Turn those off in its app if you "
                              "don't use them.", "rules": []})
-    if any(not c["names"] for c in remote):
+    bypass = outside_dns(raw)
+    if any(not c["names"] and c not in bypass for c in remote):
         acts.append({"level": "info", "title": "Addresses it never looked up: usually nothing to do",
                      "text": "Some devices connect to fixed addresses for time, relays or updates. AdGuard can't "
                              "block those (there's no lookup to refuse). To stop one, block the address in your "
