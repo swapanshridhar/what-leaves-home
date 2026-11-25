@@ -36,4 +36,12 @@ One sample of one open connection per line, for example from Linux's `/proc/net/
 
 ## An example collector
 
-The project's own test setup runs a collector on a home server that, every hour and every 5 minutes, connects to a GL.iNet router over SSH with a key made for this alone, runs `grep` there for the devices being watched, and appends the matching lines to these files. Only those devices' lines leave the router. The script is short, uses only Python's standard library and `ssh`, and is a reasonable starting point for other routers running OpenWrt.
+[`tools/collect-openwrt.py`](../tools/collect-openwrt.py) writes both kinds of file for a router running OpenWrt, such as a GL.iNet router. Run `collect-openwrt.py dns` every hour and `collect-openwrt.py conn` every 5 minutes from cron or a systemd timer, on any machine that can reach the router over SSH. It connects with a key made for this alone and runs `grep` on the router for the devices you chose, so only their lines leave it. It uses only Python's standard library and `ssh`. Its settings are listed at the top of the file.
+
+```sh
+export WLC_ROUTER=192.168.1.1 WLC_KEY=$HOME/.ssh/wl_router WLC_KNOWN_HOSTS=$HOME/.ssh/wl_router_known_hosts
+export WLC_CLIENTS=192.168.1.20,192.168.1.21 WLC_OUT=/srv/whatleaves-collector
+python3 tools/collect-openwrt.py dns && python3 tools/collect-openwrt.py conn
+```
+
+Then set `WL_FILES_DIR` to the same folder.
