@@ -87,6 +87,8 @@ All settings are environment variables, in `.env` when using Docker.
 | `WL_USER`, `WL_PASSWORD` | Set the login in advance | the first visitor creates it |
 | `WL_AUTH` | `off` turns the login off (only behind your own sign-in) | on |
 | `WL_OFFLINE` | `1`: never contact the internet (no ownership list) | off |
+| `WL_INGEST_TOKEN` | The token agents send | made once, shown on the Services page |
+| `WL_SCAN_TARGETS` | Private ranges to scan daily for listening services | off |
 | `WL_KEEP_DAYS` | Days of data to keep | 30 |
 | `WL_POLL_SECONDS` | How often to read the source | 300 |
 | `WL_PORT`, `WL_HOST` | Where to listen | 8080, all addresses |
@@ -112,6 +114,26 @@ Every device starts at 100. Points come off for: ad or tracking services (blocke
 ### Company names and countries
 
 Names like `cloud.lgthinq.com` are matched to companies from a built-in list. Addresses are matched to the network that owns them using the free [iptoasn.com](https://iptoasn.com) table (public domain), downloaded once a month and kept on your machine. Nothing is looked up online per address. Set `WL_OFFLINE=1` to never download it.
+
+## Services on your home servers
+
+Every app on one server shares its address, so the DNS log alone can't tell Jellyfin from Home Assistant. A small agent fixes that. Open **Devices & services → Services**: it suggests which machines look like servers, with the evidence (what's listening there, whether it downloads container images, which service sites it looks up), and shows one command to run on each, with your address and token filled in:
+
+```bash
+# With Docker
+docker run -d --name whatleaves-agent --restart unless-stopped --network host --pid host --cap-add SYS_PTRACE \
+  -v /var/run/docker.sock:/var/run/docker.sock:ro -e WL_URL=http://<this app> -e WL_TOKEN=<token> \
+  python:3.12-alpine sh -c 'wget -qO /agent.py "$WL_URL/whatleaves-agent.py" && exec python /agent.py'
+
+# Or as a system service (needs python3)
+curl -fsSL http://<this app>/install-agent.sh | sudo WL_URL=http://<this app> WL_TOKEN=<token> sh
+```
+
+The agent reads the server's connection table and which program or container opened each connection, and sends that here every 5 minutes. It changes nothing; the system-service installer only turns on the kernel's per-connection byte counts and says so. Its code is one file, served by the app at `/whatleaves-agent.py`.
+
+### Finding services by scanning (optional, off by default)
+
+Set `WL_SCAN_TARGETS=192.168.1.0/24` and the app checks once a day for services listening on common ports, and reads their page titles. Only private ranges up to 1024 addresses are accepted, and each scan is listed on the This app tab.
 
 ## Privacy
 

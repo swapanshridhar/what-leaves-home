@@ -59,7 +59,8 @@ class Basics(unittest.TestCase):
             if path.endswith("net.py"):
                 continue
             src = open(path).read()
-            for needle in ("urlopen", "urllib.request", "http.client", "socket.create_connection", "urlretrieve"):
+            for needle in ("urlopen", "urllib.request", "http.client", "socket.create_connection", "urlretrieve",
+                           "socket.socket"):
                 self.assertNotIn(needle, src, f"{os.path.basename(path)} uses {needle}; go through net.fetch")
 
 
@@ -67,7 +68,9 @@ class Analysis(unittest.TestCase):
     def test_demo_shows_every_verdict(self):
         store, owners = demo_store()
         o = analysis.overview(store, owners, DemoSource.SITE_NAMES)
-        self.assertEqual(o["counts"], {"total": 5, "good": 2, "check": 2, "concern": 1})
+        c = o["counts"]
+        self.assertEqual((c["devices"], c["services"]), (7, 4))
+        self.assertTrue(c["good"] and c["check"] and c["concern"])
         self.assertEqual(o["finding"]["device"], "Living room TV")
         by = {d["name"]: d for d in o["devices"]}
         self.assertEqual(by["Kitchen speaker"]["maker"], "Speaker Co.")  # a vendor's time server doesn't hide the vendor
@@ -160,6 +163,28 @@ class AdGuard(unittest.TestCase):
             srv.shutdown()
 
 
+class Services(unittest.TestCase):
+    def test_report_names_connections_from_the_servers_lookups(self):
+        store = Store(":memory:")
+        store.add_lookups([{"time": "2026-11-24T10:00:00Z", "client": "192.168.1.10", "name": "api.media.example",
+                            "answers": ["203.0.113.9"]}])
+        store.add_report({"host": "box", "host_ips": ["192.168.1.10"], "time": "2026-11-24T10:01:00Z",
+                          "services": [{"name": "jellyfin", "image": "jellyfin/jellyfin", "ports": ["8096/tcp"]}],
+                          "conns": [{"service": "jellyfin", "proto": "tcp", "dst": "203.0.113.9", "sport": 4000,
+                                     "dport": 443, "out_bytes": 10, "in_bytes": 20}]})
+        self.assertEqual([d["client"] for d in store.devices()], ["192.168.1.10"])  # services aren't devices
+        v = analysis.device_view(store, None, "svc:box/jellyfin")
+        self.assertEqual((v["kind"], v["service"]["host"]), ("media", "box"))
+        self.assertEqual(v["connections"][0]["names"], ["api.media.example"])
+
+    def test_scan_refuses_the_internet(self):
+        from whatleaves import scan
+        self.assertEqual(len(scan.targets("192.168.1.0/30")), 2)
+        for bad in ("8.8.8.0/24", "0.0.0.0/0", "10.0.0.0/8"):
+            with self.assertRaises(ValueError):
+                scan.targets(bad)
+
+
 class Login(unittest.TestCase):
     def test_hashing(self):
         h = hash_password("correct horse")
@@ -188,7 +213,8 @@ class Web(unittest.TestCase):
     def setUp(self):
         self.store, owners = demo_store()
         status = {"version": "t", "source": "demo", "keep_days": 30, "poll_seconds": 300, "auth": True}
-        self.httpd = serve(App(self.store, status, Auth(self.store), owners, DemoSource.SITE_NAMES), "127.0.0.1", 0)
+        self.httpd = serve(App(self.store, status, Auth(self.store), owners, DemoSource.SITE_NAMES, "agent-token"),
+                           "127.0.0.1", 0)
         threading.Thread(target=self.httpd.serve_forever, daemon=True).start()
         self.base = f"http://127.0.0.1:{self.httpd.server_address[1]}"
         self.cookie = ""
@@ -207,6 +233,17 @@ class Web(unittest.TestCase):
         except urllib.error.HTTPError as e:
             return e.code, json.loads(e.read() or b"{}")
 
+    def test_agent_reports_need_the_token(self):
+        rep = {"host": "nas", "host_ips": ["192.168.1.5"], "time": "2026-11-24T10:00:00Z",
+               "services": [{"name": "backup"}], "conns": []}
+        req = lambda tok: urllib.request.Request(self.base + "/api/ingest", data=json.dumps(rep).encode(),
+                                                 headers={"Content-Type": "application/json", "Authorization": f"Bearer {tok}"})
+        with self.assertRaises(urllib.error.HTTPError) as e:
+            urllib.request.urlopen(req("wrong"))
+        self.assertEqual(e.exception.code, 401)
+        self.assertEqual(json.load(urllib.request.urlopen(req("agent-token")))["ok"], True)
+        self.assertIn("svc:nas/backup", [s["id"] for s in self.store.services()])
+
     def test_signed_out_sees_nothing(self):
         self.assertEqual(self.call("/api/session")[1]["auth"], "setup")
         self.assertEqual(self.call("/api/overview")[0], 401)
@@ -216,7 +253,7 @@ class Web(unittest.TestCase):
         self.assertEqual(self.call("/api/setup", {"user": "admin", "password": "a good password"})[0], 200)
         self.assertEqual(self.call("/api/setup", {"user": "x", "password": "another password"})[0], 409)
         status, o = self.call("/api/overview")
-        self.assertEqual((status, o["counts"]["total"]), (200, 5))
+        self.assertEqual((status, o["counts"]["total"]), (200, 11))
         status, d = self.call("/api/device?client=192.168.1.21")
         self.assertEqual(d["grade"], "F")
         self.assertEqual(self.call("/api/name", {"client": "192.168.1.21", "name": "Den TV"})[0], 200)

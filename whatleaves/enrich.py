@@ -64,7 +64,7 @@ TRACKING_SITES = {
     "doubleclick.net", "googlesyndication.com", "app-measurement.com", "google-analytics.com",
     "googletagmanager.com", "amazon-adsystem.com", "samsungads.com", "samsungacr.com", "lgsmartad.com",
     "alphonso.tv", "samba.tv", "scorecardresearch.com", "branch.io", "adjust.com", "appsflyer.com",
-    "facebook.net",
+    "facebook.net", "analytics-vendor.example",
 }
 
 TIME_HINTS = ("time.", "ntp.", "pool.ntp.org", "time-", "clock.")

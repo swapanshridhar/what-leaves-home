@@ -4,6 +4,7 @@ page shows that record, so you can check the tool isn't doing what it shows
 other devices doing. Nothing else in the code opens a connection.
 """
 
+import socket
 import urllib.error
 import urllib.parse
 import urllib.request
@@ -57,3 +58,20 @@ def fetch(url, purpose, headers=None, data=None, timeout=30):
                 _recorder(row)
             except Exception:
                 pass
+
+
+def tcp_open(ip, port, timeout=0.6):
+    """True if something accepts a TCP connection at ip:port. Not recorded one by
+    one (a scan makes thousands); the scanner records one summary per scan."""
+    try:
+        with socket.create_connection((ip, port), timeout=timeout):
+            return True
+    except OSError:
+        return False
+
+
+def record(purpose, host, local, count=0, status="200"):
+    """A summary record for work that isn't a single request, such as a scan."""
+    if _recorder:
+        _recorder({"time": datetime.now(timezone.utc).isoformat(timespec="seconds"), "host": host, "url": "",
+                   "purpose": purpose, "method": "SCAN", "local": local, "bytes": count, "status": status})

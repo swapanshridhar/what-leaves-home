@@ -134,6 +134,8 @@ class DemoSource:
         "camera-cloud.example": "Camera Co.", "camera-relay.example": "RelayNet",
         "speaker-cloud.example": "Speaker Co.", "plug-cloud.example": "Plug Co.",
         "vacuum-cloud.example": "Vacuum Co.", "metrics-vendor.example": "MetricsVendor",
+        "media-metadata.example": "MediaMetadata", "weather-data.example": "WeatherData",
+        "media-index.example": "MediaIndex", "analytics-vendor.example": "AnalyticsVendor (tracking)",
     }
     OWNER_RANGES = [("203.0.113.0/26", "Example Cloud Hosting", "US"),
                     ("203.0.113.64/26", "Example CDN", "DE"),
@@ -192,5 +194,55 @@ class DemoSource:
         store.add_lookups(lookups)
         store.add_conns(conns)
         store.set_names({c: n for c, (n, _d) in self.DEVICES.items()}, overwrite=False)
+        added = len(lookups) + len(conns) + self._services(store, rnd, now)
         store.set_meta("demo_loaded", "1")
+        return added
+
+    # A home server running services, reported by an agent, and what a scan found listening.
+    SERVER = ("homeserver", "192.168.1.10")
+    SERVICES = {
+        "jellyfin": ("jellyfin/jellyfin:10.10", ["8096/tcp"], [("api.media-metadata.example", "203.0.113.90", 443, 40)]),
+        "homeassistant": ("ghcr.io/home-assistant/home-assistant:2026.11", ["8123/tcp"], [
+            ("cloud.speaker-cloud.example", "203.0.113.40", 443, 2), ("api.weather-data.example", "203.0.113.91", 443, 1)]),
+        "sonarr": ("linuxserver/sonarr:4", ["8989/tcp"], [("indexer.media-index.example", "198.51.100.40", 443, 15)]),
+        "photo-backup": ("example/photo-backup:1.2", ["2342/tcp"], [
+            ("telemetry.analytics-vendor.example", "203.0.113.95", 443, 0.5),
+            ("ads.adnetwork.example", "203.0.113.20", 443, 0)]),
+    }
+
+    def _services(self, store, rnd, now):
+        host, ip = self.SERVER
+        lookups, conns = [], []
+        for name, (_image, _ports, dests) in self.SERVICES.items():
+            for dhost, addr, port, mb in dests:
+                blocked = dhost.startswith("ads.")
+                for _ in range(rnd.randint(6, 30)):
+                    t = now - timedelta(seconds=rnd.uniform(0, 86400))
+                    lookups.append({"time": t.isoformat(), "client": ip, "name": dhost, "qtype": "A",
+                                    "answers": ["0.0.0.0"] if blocked else [addr], "blocked": blocked})
+                if blocked:
+                    continue
+                sport, sent = rnd.randint(40000, 60000), 0
+                for k in range(1, 73):
+                    t = now - timedelta(minutes=20 * (72 - k))
+                    sent += int(mb * 1e6 / 72 * rnd.uniform(0.5, 1.5))
+                    conns.append({"time": t.isoformat(), "service": name, "proto": "tcp", "dst": addr,
+                                  "sport": sport, "dport": port, "out_bytes": sent, "in_bytes": sent * 4})
+        store.add_lookups(lookups)
+        store.set_names({ip: "Home server (all its services)"}, overwrite=False)
+        store.add_report({"host": host, "host_ips": [ip], "time": now.isoformat(),
+                          "services": [{"name": n, "image": i, "ports": p, "network": "bridge"}
+                                       for n, (i, p, _d) in self.SERVICES.items()], "conns": conns})
+        # A second machine with no agent yet, so "Set up services" has something to suggest.
+        nas = "192.168.1.12"
+        store.set_names({nas: "NAS"}, overwrite=False)
+        store.add_lookups([{"time": (now - timedelta(minutes=m)).isoformat(), "client": nas, "name": n,
+                            "answers": ["203.0.113.99"]} for m, n in enumerate(
+                               ["registry-1.docker.io", "ghcr.io", "api.github.com", "api.themoviedb.org"] * 6)])
+        when = now.isoformat(timespec="seconds")
+        store.set_scan([(nas, 445, "File sharing (SMB)", ""), (nas, 8080, "Web app", "NAS admin"),
+                        (nas, 32400, "Plex", "Plex"), (ip, 8096, "Jellyfin", "Jellyfin"), (ip, 8123, "Home Assistant", "Home Assistant"),
+                        (ip, 8989, "Sonarr", "Sonarr"), (ip, 22, "SSH", ""),
+                        ("192.168.1.21", 8008, "Google Cast", ""), ("192.168.1.47", 554, "Video stream (RTSP)", ""),
+                        ("192.168.1.47", 80, "Web page", "Camera login")], when)
         return len(lookups) + len(conns)

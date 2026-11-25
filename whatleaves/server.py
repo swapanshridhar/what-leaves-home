@@ -1,5 +1,6 @@
 """The web server: the page, its JSON API, and the login around both."""
 
+import hmac
 import http.cookies
 import json
 import os
@@ -13,15 +14,21 @@ STATIC = os.path.join(os.path.dirname(__file__), "static")
 FILES = {"/": ("index.html", "text/html; charset=utf-8"),
          "/app.js": ("app.js", "text/javascript; charset=utf-8"),
          "/app.css": ("app.css", "text/css; charset=utf-8"),
-         "/logo.svg": ("logo.svg", "image/svg+xml")}
+         "/logo.svg": ("logo.svg", "image/svg+xml"),
+         # Public, so a server can fetch them with only the agent token: they're code, not data.
+         "/whatleaves-agent.py": ("whatleaves-agent.py", "text/x-python; charset=utf-8"),
+         "/install-agent.sh": ("install-agent.sh", "text/x-shellscript; charset=utf-8")}
 OPEN_API = {"/api/session", "/api/setup", "/api/login"}
+MAX_BODY = 65536
+MAX_INGEST = 8 * 1024 * 1024  # one agent report
 
 
 class App:
     """Everything a request handler needs."""
 
-    def __init__(self, store, status, auth, owners=None, site_names=None):
+    def __init__(self, store, status, auth, owners=None, site_names=None, ingest_token=""):
         self.store, self.status, self.auth, self.owners, self.site_names = store, status, auth, owners, site_names
+        self.ingest_token = ingest_token
 
 
 def make_handler(app):
@@ -59,11 +66,13 @@ def make_handler(app):
             secure = "; Secure" if self.headers.get("X-Forwarded-Proto", "") == "https" else ""
             return f"{COOKIE}={token}; Path=/; HttpOnly; SameSite=Strict; Max-Age={max_age}{secure}"
 
-        def _body(self):
+        def _body(self, limit=MAX_BODY):
             if self.headers.get("Content-Type", "").split(";")[0] != "application/json":
                 raise ValueError("JSON only")  # also stops cross-site form posts
             n = int(self.headers.get("Content-Length") or 0)
-            return json.loads(self.rfile.read(min(n, 65536)) or b"{}")
+            if n > limit:
+                raise ValueError("too large")
+            return json.loads(self.rfile.read(n) or b"{}")
 
         def _remote(self):
             return self.headers.get("X-Forwarded-For", "").split(",")[0].strip() or self.client_address[0]
@@ -95,6 +104,9 @@ def make_handler(app):
                 return self._json(analysis.overview(s, o, n))
             if url.path == "/api/device" and q.get("client"):
                 return self._json(analysis.device_view(s, o, q["client"][0], n))
+            if url.path == "/api/agent":
+                return self._json({"token": app.ingest_token, "agents": agent_summary(s),
+                                   "suggestions": analysis.suggest_hosts(s)})
             if url.path == "/api/app":
                 return self._json({"status": app.status, "summary": s.own_call_summary(), "calls": s.own_calls(200),
                                    "owners": {"enabled": bool(o and o.enabled), "ready": bool(o and o.ready),
@@ -107,6 +119,8 @@ def make_handler(app):
 
         def do_POST(self):
             path = urllib.parse.urlparse(self.path).path
+            if path == "/api/ingest":
+                return self._ingest()
             try:
                 body = self._body()
             except ValueError:
@@ -145,7 +159,30 @@ def make_handler(app):
                 return self._json({"ok": True})
             return self._json({"error": "not found"}, 404)
 
+        def _ingest(self):
+            """An agent's report. Its own token, not a login: agents are scripts."""
+            given = self.headers.get("Authorization", "").removeprefix("Bearer ").strip()
+            if not app.ingest_token or not hmac.compare_digest(given.encode(), app.ingest_token.encode()):
+                return self._json({"error": "bad token"}, 401)
+            try:
+                rep = self._body(MAX_INGEST)
+                if not isinstance(rep.get("host"), str) or not isinstance(rep.get("conns", []), list):
+                    raise ValueError("not a report")
+                added = app.store.add_report(rep)
+            except (ValueError, KeyError, TypeError) as e:
+                return self._json({"error": f"bad report: {e}"}, 400)
+            return self._json({"ok": True, "added": added})
+
     return Handler
+
+
+def agent_summary(store):
+    hosts = {}
+    for s in store.services():
+        h = hosts.setdefault(s["host"], {"host": s["host"], "services": 0, "last_seen": s["last_seen"]})
+        h["services"] += 1
+        h["last_seen"] = max(h["last_seen"], s["last_seen"])
+    return sorted(hosts.values(), key=lambda h: h["host"])
 
 
 def serve(app, host, port):

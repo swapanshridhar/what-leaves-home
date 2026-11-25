@@ -10,6 +10,8 @@
   WL_USER, WL_PASSWORD  set the login in advance (otherwise the first visitor sets it)
   WL_AUTH=off           no login, for setups behind their own sign-in
   WL_OFFLINE=1          never contact the internet (no ownership list)
+  WL_INGEST_TOKEN       the token agents send (otherwise made once and shown in Settings)
+  WL_SCAN_TARGETS       optional: private ranges to scan daily for listening services
   WL_KEEP_DAYS          how long to keep data (default 30)
   WL_POLL_SECONDS       how often to read the source (default 300)
   WL_DB                 database file (default ./data/whatleaves.db)
@@ -23,7 +25,9 @@ import time
 import traceback
 from datetime import datetime, timezone
 
-from . import __version__, net
+import secrets
+
+from . import __version__, net, scan
 from .auth import Auth
 from .enrich import Owners
 from .server import App, serve
@@ -70,8 +74,15 @@ def main():
     owners.start()
     auth = Auth(store, enabled=env("WL_AUTH", "on").lower() not in ("off", "0", "false", "no"),
                 preset_user=env("WL_USER"), preset_password=env("WL_PASSWORD"))
+    token = env("WL_INGEST_TOKEN") or store.get_meta("ingest_token")
+    if not token:
+        token = secrets.token_urlsafe(32)
+    store.set_meta("ingest_token", token)
+    scanning = 0
+    if env("WL_SCAN_TARGETS"):
+        scanning = scan.start(store, env("WL_SCAN_TARGETS"))
     status = {"version": __version__, "source": source.kind, "keep_days": keep_days, "poll_seconds": every,
-              "offline": offline, "auth": auth.enabled, "last_poll": None, "last_error": None}
+              "offline": offline, "auth": auth.enabled, "scan_hosts": scanning, "last_poll": None, "last_error": None}
 
     def poll_forever():
         while True:
@@ -87,7 +98,7 @@ def main():
 
     threading.Thread(target=poll_forever, daemon=True).start()
     host, port = env("WL_HOST", "0.0.0.0"), int(env("WL_PORT", "8080"))
-    httpd = serve(App(store, status, auth, owners, DemoSource.SITE_NAMES if source.kind == "demo" else None),
+    httpd = serve(App(store, status, auth, owners, DemoSource.SITE_NAMES if source.kind == "demo" else None, token),
                   host, port)
     login = "off" if not auth.enabled else ("open the page to create it" if auth.needs_setup() else "set")
     print(f"What Leaves Home {__version__}: source {source.kind}, login {login}, "

@@ -34,6 +34,27 @@ KINDS = [  # (words in the name, kind) for the icon and the one-line summary
 ]
 
 
+SERVICE_KINDS = [  # (words in the image or name, kind)
+    (("jellyfin", "plex", "emby", "navidrome", "music-assistant", "music_assistant"), "media"),
+    (("home-assistant", "homeassistant", "hass", "zigbee2mqtt", "mosquitto", "zwave", "esphome"), "home"),
+    (("sonarr", "radarr", "prowlarr", "lidarr", "readarr", "qbittorrent", "transmission", "sabnzbd", "overseerr", "jellyseerr", "gluetun"), "download"),
+    (("adguard", "pihole", "pi-hole", "unbound", "dnsmasq", "systemd-resolved"), "dns"),
+    (("caddy", "nginx", "traefik", "haproxy", "cloudflared", "tailscale", "wireguard", "wg-easy"), "proxy"),
+    (("ollama", "open-webui", "openwebui", "llama", "whisper", "piper"), "ai"),
+    (("postgres", "mariadb", "mysql", "redis", "influx", "sqlite"), "db"),
+    (("frigate", "scrypted", "go2rtc"), "camera"),
+    (("uptime-kuma", "netalertx", "healthchecks", "grafana", "prometheus", "beszel", "glances", "speedtest"), "monitor"),
+]
+
+
+def service_kind(name, image=""):
+    n = f"{name} {image}".lower()
+    for words, kind in SERVICE_KINDS:
+        if any(w in n for w in words):
+            return kind
+    return "service"
+
+
 def kind_of(name):
     n = f" {name.lower()} "
     for words, kind in KINDS:
@@ -177,7 +198,11 @@ def device_view(store, owners, client, site_names=None, with_detail=True):
     raw = store.device(client)
     comps = companies_for(raw, owners, site_names)
     a = assess(raw, comps)
-    view = {"client": client, "name": raw["name"], "kind": kind_of(raw["name"] or ""),
+    svc = raw.get("service")
+    kind = service_kind(svc["name"], svc["image"]) if svc else kind_of(raw["name"] or "")
+    view = {"client": client, "name": raw["name"], "kind": kind,
+            "service": {"host": svc["host"], "image": svc["image"], "ports": svc["ports"], "network": svc["network"]}
+            if svc else None,
             "first": raw["first"], "last": raw["last"], "summary": summary_line(a, comps, a["per_day_out"]),
             **a,
             "companies_brief": [{"company": c["company"], "flags": [x["flag"] for x in c["countries"]],
@@ -192,12 +217,14 @@ def device_view(store, owners, client, site_names=None, with_detail=True):
 
 def overview(store, owners, site_names=None):
     devices = [device_view(store, owners, d["client"], site_names, with_detail=False) for d in store.devices()]
-    counts = {"total": len(devices), "good": 0, "check": 0, "concern": 0}
-    for d in devices:
+    services = [device_view(store, owners, s["id"], site_names, with_detail=False) for s in store.services()]
+    counts = {"total": len(devices) + len(services), "good": 0, "check": 0, "concern": 0,
+              "devices": len(devices), "services": len(services)}
+    for d in devices + services:
         counts[d["verdict"]] += 1
     # The finding to show first: the worst reason on the lowest-scoring device.
     finding = None
-    for d in sorted(devices, key=lambda d: d["score"]):
+    for d in sorted(devices + services, key=lambda d: d["score"]):
         bad = [r for r in d["reasons"] if r["level"] in ("bad", "warn")]
         if bad:
             finding = {"client": d["client"], "device": d["name"] or d["client"], "verdict": d["verdict"],
@@ -205,7 +232,7 @@ def overview(store, owners, site_names=None):
             break
     # Where the data goes, across all devices, by company.
     flows = {}
-    for d in devices:
+    for d in devices + services:
         detail = companies_for(store.device(d["client"]), owners, site_names)
         for c in detail:
             f = flows.setdefault(c["company"], {"company": c["company"], "bytes_out": 0, "lookups": 0,
@@ -218,8 +245,68 @@ def overview(store, owners, site_names=None):
     companies = sorted(flows.values(), key=lambda f: (-f["bytes_out"], -f["lookups"]))
     for f in companies:
         f["flags"] = sorted(f["flags"])
-    headline = (f"{counts['total']} device{'s' if counts['total'] != 1 else ''} watched. " +
+    things = " and ".join(x for x in (
+        f"{len(devices)} device{'s' if len(devices) != 1 else ''}" if devices or not services else "",
+        f"{len(services)} service{'s' if len(services) != 1 else ''}" if services else "") if x)
+    headline = (f"{things} watched. " +
                 ("All look fine." if counts["total"] and counts["good"] == counts["total"] else
                  f"{counts['concern']} need{'s' if counts['concern'] == 1 else ''} attention, "
                  f"{counts['check']} worth a look." if counts["total"] else "Waiting for the first data."))
-    return {"counts": counts, "headline": headline, "finding": finding, "devices": devices, "companies": companies}
+    return {"counts": counts, "headline": headline, "finding": finding, "devices": devices, "services": services,
+            "companies": companies, "scan": store.scan_results()}
+
+
+SERVER_PORTS = {8096: "Jellyfin", 8123: "Home Assistant", 8989: "Sonarr", 7878: "Radarr", 9696: "Prowlarr",
+                5055: "Overseerr", 32400: "Plex", 11434: "Ollama", 9443: "Portainer", 3001: "Uptime Kuma",
+                5432: "PostgreSQL", 2049: "NFS", 445: "file sharing", 3000: "a web app", 8080: "a web app",
+                9000: "a web app", 5000: "a web app"}
+DOCKER_SITES = {"docker.io", "docker.com", "ghcr.io", "quay.io", "lscr.io", "gcr.io", "k8s.io"}
+SERVICE_SITES = {"themoviedb.org": "TMDB (Jellyfin, Plex, the *arr apps)", "thetvdb.com": "TheTVDB (Jellyfin, Sonarr)",
+                 "musicbrainz.org": "MusicBrainz (music apps)", "home-assistant.io": "Home Assistant",
+                 "nabucasa.com": "Home Assistant Cloud", "jellyfin.org": "Jellyfin", "plex.tv": "Plex",
+                 "ollama.com": "Ollama", "github.com": "software updates (GitHub)", "pypi.org": "Python packages"}
+
+
+def suggest_hosts(store):
+    """Machines that look like servers running services, with the evidence, best first.
+    Machines already sending agent reports are left out."""
+    covered = {ip for s in store.services() for ip in s["host_ips"]}
+    names = dict(store.q("SELECT client, name FROM names"))
+    found = {}
+
+    def entry(ip):
+        return found.setdefault(ip, {"ip": ip, "name": names.get(ip, ""), "reasons": [], "score": 0, "docker": False})
+
+    by_ip = {}
+    for r in store.scan_results():
+        if r["port"] in SERVER_PORTS:
+            by_ip.setdefault(r["ip"], []).append(f"{SERVER_PORTS[r['port']]} ({r['port']})")
+    for ip, apps in by_ip.items():
+        e = entry(ip)
+        e["reasons"].append("Listening here: " + ", ".join(apps[:5]))
+        e["score"] += 3 * len(apps)
+    for ip, qnames in _names_by_client(store).items():
+        sites = {site(n) for n in qnames}
+        if sites & DOCKER_SITES:
+            e = entry(ip)
+            e["docker"] = True
+            e["score"] += 5
+            e["reasons"].append("Downloads container images, so it runs Docker")
+        hints = [SERVICE_SITES[s] for s in sorted(sites) if s in SERVICE_SITES]
+        if hints:
+            e = entry(ip)
+            e["score"] += 2 * len(hints)
+            e["reasons"].append("Looks up " + ", ".join(hints[:4]))
+        if len(sites) >= 25:
+            e = entry(ip)
+            e["score"] += 2
+            e["reasons"].append(f"Looks up {len(sites)} different sites, like a machine running several apps")
+    out = [e for ip, e in found.items() if ip not in covered and e["score"] >= 4 and is_private(ip)]
+    return sorted(out, key=lambda e: -e["score"])[:12]
+
+
+def _names_by_client(store):
+    out = {}
+    for client, name in store.q("SELECT DISTINCT client, name FROM lookups"):
+        out.setdefault(client, set()).add(name)
+    return out

@@ -22,6 +22,10 @@ CREATE TABLE IF NOT EXISTS names (client TEXT PRIMARY KEY, name TEXT);
 CREATE TABLE IF NOT EXISTS meta (key TEXT PRIMARY KEY, value TEXT);
 CREATE TABLE IF NOT EXISTS own_calls (
     time TEXT, host TEXT, url TEXT, purpose TEXT, method TEXT, local INTEGER, bytes INTEGER, status TEXT);
+CREATE TABLE IF NOT EXISTS services (
+    id TEXT PRIMARY KEY, host TEXT, name TEXT, image TEXT, ports TEXT, network TEXT, host_ips TEXT, last_seen TEXT);
+CREATE TABLE IF NOT EXISTS scan (
+    ip TEXT, port INTEGER, guess TEXT, title TEXT, first_seen TEXT, last_seen TEXT, PRIMARY KEY (ip, port));
 CREATE TABLE IF NOT EXISTS users (username TEXT PRIMARY KEY, pwhash TEXT);
 CREATE TABLE IF NOT EXISTS sessions (token_hash TEXT PRIMARY KEY, username TEXT, expires TEXT);
 CREATE INDEX IF NOT EXISTS lookups_client ON lookups (client, time);
@@ -54,6 +58,10 @@ def is_private(addr):
     except ValueError:
         return False
     return any(ip.version == n.version and ip in n for n in LOCAL_NETS)
+
+
+def service_id(host, name):
+    return f"svc:{host}/{name}"
 
 
 class Store:
@@ -105,6 +113,37 @@ class Store:
                (row["time"], row["host"], row["url"], row["purpose"], row["method"],
                 int(row["local"]), row["bytes"], row["status"]))
 
+    def add_report(self, rep):
+        """One agent report: its services, and their connections as clients svc:<host>/<service>."""
+        host, when = str(rep["host"])[:80], utc(rep["time"])
+        ips = json.dumps([str(i) for i in rep.get("host_ips") or []][:32])
+        rows = [(service_id(host, s["name"]), host, str(s["name"])[:120], str(s.get("image", ""))[:200],
+                 json.dumps([str(p) for p in s.get("ports") or []][:50]), str(s.get("network", ""))[:40], ips, when)
+                for s in rep.get("services") or []]
+        with self.lock, self.db:
+            self.db.executemany("INSERT OR REPLACE INTO services VALUES (?,?,?,?,?,?,?,?)", rows)
+        return self.add_conns([{"time": rep["time"], **c, "client": service_id(host, c["service"])}
+                               for c in rep.get("conns") or [] if isinstance(c, dict) and c.get("service")])
+
+    def services(self):
+        cols = ("id", "host", "name", "image", "ports", "network", "host_ips", "last_seen")
+        out = [dict(zip(cols, r)) for r in self.q(f"SELECT {', '.join(cols)} FROM services ORDER BY host, name")]
+        for s in out:
+            s["ports"], s["host_ips"] = json.loads(s["ports"] or "[]"), json.loads(s["host_ips"] or "[]")
+        return out
+
+    def set_scan(self, found, when):
+        """found: [(ip, port, guess, title)] from one scan."""
+        with self.lock, self.db:
+            for ip, port, guess, title in found:
+                self.db.execute("""INSERT INTO scan VALUES (?,?,?,?,?,?) ON CONFLICT (ip, port) DO UPDATE
+                                   SET guess=excluded.guess, title=excluded.title, last_seen=excluded.last_seen""",
+                                (ip, port, guess, title, when, when))
+
+    def scan_results(self):
+        cols = ("ip", "port", "guess", "title", "first_seen", "last_seen")
+        return [dict(zip(cols, r)) for r in self.q(f"SELECT {', '.join(cols)} FROM scan ORDER BY ip, port")]
+
     def set_names(self, names, overwrite=True):
         verb = "INSERT OR REPLACE" if overwrite else "INSERT OR IGNORE"
         with self.lock, self.db:
@@ -139,15 +178,23 @@ class Store:
         """Every client seen, with its name."""
         names = dict(self.q("SELECT client, name FROM names"))
         clients = {c for (c,) in self.q("SELECT DISTINCT client FROM lookups")}
-        clients |= {c for (c,) in self.q("SELECT DISTINCT client FROM conns")}
+        clients |= {c for (c,) in self.q("SELECT DISTINCT client FROM conns") if not c.startswith("svc:")}
         return sorted(({"client": c, "name": names.get(c, "")} for c in clients),
                       key=lambda d: (d["name"].lower() or "~", d["client"]))
 
     def device(self, client):
         """Raw material for one device: lookups by name, connections by destination."""
         name = (self.q("SELECT name FROM names WHERE client=?", (client,)) or [("",)])[0][0]
-        rows = self.q("""SELECT name, COUNT(*), SUM(blocked), MIN(time), MAX(time), GROUP_CONCAT(answers, '|')
-                         FROM lookups WHERE client=? GROUP BY name""", (client,))
+        lookup_clients, svc = [client], None
+        if client.startswith("svc:"):
+            # A service's own lookups reach DNS from its server's address, mixed with its neighbours',
+            # so they only name its connections; they aren't listed as its lookups.
+            svc = next((s for s in self.services() if s["id"] == client), None)
+            lookup_clients = svc["host_ips"] if svc else []
+            name = name or (svc["name"] if svc else client)
+        marks = ",".join("?" * len(lookup_clients)) or "''"
+        rows = self.q(f"""SELECT name, COUNT(*), SUM(blocked), MIN(time), MAX(time), GROUP_CONCAT(answers, '|')
+                          FROM lookups WHERE client IN ({marks}) GROUP BY name""", tuple(lookup_clients))
         lookups, by_addr, first, last = [], {}, None, None
         for qname, n, blocked, f, l, answers_concat in rows:
             addrs = set()
@@ -171,7 +218,13 @@ class Store:
             c["bytes_in"] += ib
             c["first"], c["last"] = min(c["first"], f), max(c["last"], l)
             first, last = min(first or f, f), max(last or l, l)
-        return {"client": client, "name": name, "first": first, "last": last,
+        if svc:
+            # Keep only the host's lookups that explain this service's connections.
+            used = {n for c in conns.values() for n in c["names"]}
+            lookups = [l for l in lookups if l["name"] in used]
+            first = min((c["first"] for c in conns.values()), default=None)
+            last = max((c["last"] for c in conns.values()), default=None)
+        return {"client": client, "name": name, "first": first, "last": last, "service": svc,
                 "lookups": sorted(lookups, key=lambda x: -x["count"]),
                 "connections": sorted(conns.values(), key=lambda c: -(c["bytes_out"] + c["bytes_in"]))}
 

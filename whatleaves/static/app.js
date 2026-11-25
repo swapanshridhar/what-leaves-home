@@ -58,6 +58,16 @@ const ICON = {
   globe: I('<circle cx="12" cy="12" r="9"/><path d="M3 12h18M12 3a14 14 0 0 1 0 18M12 3a14 14 0 0 0 0 18"/>'),
   home: I('<path d="M3 11 12 3l9 8v9a1 1 0 0 1-1 1h-5v-6H9v6H4a1 1 0 0 1-1-1z"/>'),
   shield: I('<path d="M12 3 4 6v6c0 5 3.5 8 8 9 4.5-1 8-4 8-9V6z"/><path d="m9 12 2 2 4-4"/>'),
+  media: I('<rect x="3" y="4" width="18" height="16" rx="2"/><path d="m10 9 5 3-5 3z"/>'),
+  home: I('<path d="M3 11 12 3l9 8v9a1 1 0 0 1-1 1h-5v-6H9v6H4a1 1 0 0 1-1-1z"/>'),
+  download: I('<path d="M12 3v12M7 10l5 5 5-5M4 21h16"/>'),
+  dns: I('<circle cx="12" cy="12" r="9"/><path d="M3 12h18M12 3a14 14 0 0 1 0 18M12 3a14 14 0 0 0 0 18"/>'),
+  proxy: I('<path d="M4 7h11M4 17h11M15 4l3 3-3 3M15 14l3 3-3 3"/>'),
+  ai: I('<path d="M12 3v3M12 18v3M3 12h3M18 12h3"/><rect x="7" y="7" width="10" height="10" rx="3"/><circle cx="12" cy="12" r="1.5"/>'),
+  db: I('<ellipse cx="12" cy="5" rx="8" ry="3"/><path d="M4 5v14c0 1.7 3.6 3 8 3s8-1.3 8-3V5M4 12c0 1.7 3.6 3 8 3s8-1.3 8-3"/>'),
+  monitor: I('<path d="M3 12h4l3-8 4 16 3-8h4"/>'),
+  service: I('<rect x="3" y="4" width="18" height="6" rx="2"/><rect x="3" y="14" width="18" height="6" rx="2"/><path d="M7 7h.01M7 17h.01"/>'),
+  copy: I('<rect x="9" y="9" width="12" height="12" rx="2"/><path d="M5 15V5a2 2 0 0 1 2-2h10"/>'),
 };
 const PALETTE = ["#14b8a6", "#6366f1", "#f59e0b", "#ec4899", "#0ea5e9", "#84cc16", "#a855f7", "#f97316", "#64748b"];
 
@@ -107,6 +117,7 @@ async function route() {
   try {
     if (!view) { setTab("overview"); main.innerHTML = renderOverview(await loadOverview()); }
     else if (view === "devices") { setTab("devices"); if (arg) deviceFilter = arg; main.innerHTML = renderDevices(overviewCache || await loadOverview()); wireDevices(); }
+    else if (view === "services") { setTab("devices"); const [o, a] = await Promise.all([overviewCache || loadOverview(), api("/api/agent")]); overviewCache = o; main.innerHTML = renderServices(o, a); wireCopy(); }
     else if (view === "device") { setTab("devices"); main.innerHTML = renderDevice(await api("/api/device?client=" + encodeURIComponent(decodeURIComponent(arg)))); wireDevice(); }
     else if (view === "companies") { setTab("companies"); main.innerHTML = renderCompanies(overviewCache || await loadOverview()); }
     else if (view === "app") { setTab("app"); main.innerHTML = renderApp(await api("/api/app")); }
@@ -146,10 +157,13 @@ function renderOverview(o) {
     <h1>${esc(o.headline)}</h1>
     <p class="lede">What each device in your home talks to on the internet, in plain words.</p>
     ${demo}
-    <div class="stats">${stat("all", c.total, "Devices watched")}${stat("good", c.good, "Look fine")}${stat("check", c.check, "Worth a look")}${stat("concern", c.concern, "Concern")}</div>
+    <div class="stats">${stat("all", c.total, "Watched")}${stat("good", c.good, "Look fine")}${stat("check", c.check, "Worth a look")}${stat("concern", c.concern, "Concern")}</div>
     ${finding}
     <h2>Your devices <small>sorted by what needs attention</small></h2>
     ${o.devices.length ? `<div class="grid">${[...o.devices].sort((a, b) => a.score - b.score).map(tile).join("")}</div>` : `<div class="card empty">No devices yet. They appear after the first read.</div>`}
+    <h2>Your services <small>apps on your home servers</small></h2>
+    ${o.services.length ? `<div class="grid">${[...o.services].sort((a, b) => a.score - b.score).slice(0, 6).map(serviceTile).join("")}</div>${o.services.length > 6 ? `<p><a href="#/services">All ${o.services.length} services →</a></p>` : ""}`
+      : `<a class="card pad finding good" href="#/services"><span class="ico">${ICON.service}</span><span><div class="t">See what each app on your servers sends out</div><span class="go">Set up services: one command per server →</span></span></a>`}
     ${flow ? `<h2>Where your data goes <small>data sent, by company</small></h2>${flow}` : ""}
   </section>`;
 }
@@ -164,11 +178,17 @@ function tile(d) {
   </a>`;
 }
 
-/* ---------- devices */
+/* ---------- devices and services */
+function dsToggle(which, o) {
+  return `<div class="seg big" role="tablist" aria-label="Devices or services">
+    <a role="tab" href="#/devices" aria-selected="${which === "devices"}">Devices <span class="cnt">${o.counts.devices}</span></a>
+    <a role="tab" href="#/services" aria-selected="${which === "services"}">Services <span class="cnt">${o.counts.services}</span></a></div>`;
+}
 function renderDevices(o) {
   const btn = (k, l) => `<button data-f="${k}" aria-pressed="${deviceFilter === k}">${l}</button>`;
   return `<section>
-    <h1>Devices</h1><p class="lede">${plural(o.counts.total, "device")} seen. Pick one to see who it talks to and why it got its grade.</p>
+    ${dsToggle("devices", o)}
+    <h1>Devices</h1><p class="lede">${plural(o.counts.devices, "device")} seen on your network. Pick one to see who it talks to and why it got its grade.</p>
     <div class="toolbar">
       <label class="search">${ICON.search}<input id="q" placeholder="Search devices, addresses, companies" value="${esc(search)}" aria-label="Search"></label>
       <div class="seg" role="group" aria-label="Filter">${btn("all", "All")}${btn("concern", "Concern")}${btn("check", "Worth a look")}${btn("good", "Look fine")}</div>
@@ -187,6 +207,67 @@ function fillDevices() {
       <span class="hide-sm chips">${d.companies_brief.map(companyChip).join("")}</span>
       <span class="num hide-sm">${bytes(d.per_day_out)}</span><span class="hide-sm muted">${ago(d.last)}</span>${grade(d)}</a>`).join("")
       : `<div class="empty">No devices match.</div>`);
+}
+function renderServices(o, a) {
+  const byHost = {};
+  o.services.forEach((s) => (byHost[s.service.host] = byHost[s.service.host] || []).push(s));
+  const hosts = Object.keys(byHost).sort().map((h) => `<h2>${ICON.service.replace("<svg", '<svg width="18" height="18"')} ${esc(h)} <small>${plural(byHost[h].length, "service")}</small></h2>
+    <div class="grid">${byHost[h].sort((x, y) => x.score - y.score).map(serviceTile).join("")}</div>`).join("");
+  return `<section>${dsToggle("services", o)}
+    <h1>Services</h1>
+    <p class="lede">The apps running on your home servers, and what each one sends out. A small agent on each server tells them apart.</p>
+    ${hosts || ""}
+    ${setupPanel(a, o.services.length === 0)}
+    ${scanPanel(o.scan)}</section>`;
+}
+function serviceTile(d) {
+  return `<a class="tile" href="#/device/${encodeURIComponent(d.client)}">
+    <div class="row">${kind(d.kind)}<div><div class="name">${esc(d.name)}</div><div class="sub">${esc(d.label)}${d.service.ports.length ? " · " + esc(d.service.ports.join(", ")) : ""}</div></div>${grade(d)}</div>
+    <div class="sum">${esc(d.summary)}</div>
+    <div class="chips">${d.companies_brief.map(companyChip).join("")}</div>
+    ${spark(d.activity)}
+    <div class="foot"><span class="mono" style="font-size:11.5px">${esc(d.service.image || d.service.network || "")}</span><span>Last seen ${ago(d.last)}</span></div></a>`;
+}
+function commands(ip, token) {
+  const url = location.origin;
+  const docker = `docker run -d --name whatleaves-agent --restart unless-stopped --network host --pid host --cap-add SYS_PTRACE -v /var/run/docker.sock:/var/run/docker.sock:ro -e WL_URL=${url} -e WL_TOKEN=${token} python:3.12-alpine sh -c 'wget -qO /agent.py "$WL_URL/whatleaves-agent.py" && exec python /agent.py'`;
+  const install = `curl -fsSL ${url}/install-agent.sh | sudo WL_URL=${url} WL_TOKEN=${token} sh`;
+  return { docker, install };
+}
+function cmdBlock(label, text, note) {
+  return `<div class="cmd"><div class="cmdh"><span>${label}</span><button class="copy" data-copy="${esc(text)}">${ICON.copy} Copy</button></div><pre class="mono">${esc(text)}</pre>${note ? `<div class="muted" style="font-size:12.5px">${note}</div>` : ""}</div>`;
+}
+function setupPanel(a, empty) {
+  const c = commands("", a.token);
+  const agents = a.agents.length ? `<p class="muted">Reporting now: ${a.agents.map((h) => `<b>${esc(h.host)}</b> (${plural(h.services, "service")}, ${ago(h.last_seen)})`).join(", ")}.</p>` : "";
+  const sugg = a.suggestions.map((h) => `<div class="card pad sugg">
+      <div class="top"><span class="kind">${ICON.service}</span><div><div class="cn">${esc(h.name || h.ip)}</div><div class="muted mono" style="font-size:12.5px">${esc(h.ip)}</div></div>
+      <span class="chip ok" style="margin-left:auto">Suggested</span></div>
+      <ul class="why">${h.reasons.map((r) => `<li>${esc(r)}</li>`).join("")}</ul>
+      <p class="muted" style="margin:0 0 4px;font-size:13px">Open a terminal on ${esc(h.name || h.ip)} (for example <span class="mono">ssh you@${esc(h.ip)}</span>) and run one of these:</p>
+      ${h.docker ? cmdBlock("With Docker (recommended here)", c.docker) + cmdBlock("Or as a system service", c.install) : cmdBlock("As a system service", c.install) + cmdBlock("Or with Docker", c.docker)}
+    </div>`).join("");
+  return `<h2>${empty ? "Set up services" : "Add another server"} <small>one command per server</small></h2>
+    <div class="card pad setup">
+      <p style="margin-top:0">Services on one server all share its address, so the DNS log alone can't tell them apart. Run the agent on each server and this page shows every app separately. It only reads which program opened each connection, and sends that here with your token.</p>
+      ${agents}
+      ${a.suggestions.length ? `<p><b>These machines look like servers:</b></p><div class="grid">${sugg}</div>` :
+        `<p class="muted">No other machines look like servers yet${o_scan_hint()}. You can still add any machine:</p>${cmdBlock("With Docker", c.docker)}${cmdBlock("Or as a system service", c.install)}`}
+      <p class="muted" style="font-size:12.5px;margin-bottom:0">The commands contain your token: treat them like a password. The agent's code is at <a href="/whatleaves-agent.py">/whatleaves-agent.py</a>; the installer is <a href="/install-agent.sh">/install-agent.sh</a>.</p>
+    </div>`;
+}
+function o_scan_hint() { return statusCache?.scan_hosts ? "" : " (turning on the scan, WL_SCAN_TARGETS, helps find them)"; }
+function scanPanel(rows) {
+  if (!rows.length) return `<h2>Listening on your network</h2><div class="card pad muted">Off. Set <span class="mono">WL_SCAN_TARGETS</span> to your home range (for example 192.168.1.0/24) to check daily for services listening on common ports. It only accepts private ranges, and every scan is listed on the This app tab.</div>`;
+  const tr = rows.map((r) => `<tr><td class="mono">${esc(r.ip)}</td><td class="num">${r.port}</td><td>${esc(r.guess)}</td><td>${esc(r.title)}</td><td>${ago(r.last_seen)}</td></tr>`).join("");
+  return `<h2>Listening on your network <small>from the daily scan</small></h2><div class="card pad scroll"><table><thead><tr><th>Address</th><th class="num">Port</th><th>Probably</th><th>Page title</th><th>Last seen</th></tr></thead><tbody>${tr}</tbody></table></div>`;
+}
+function wireCopy() {
+  document.querySelectorAll(".copy").forEach((b) => b.addEventListener("click", async () => {
+    try { await navigator.clipboard.writeText(b.dataset.copy); }
+    catch (e) { const pre = b.closest(".cmd").querySelector("pre"); const r = document.createRange(); r.selectNodeContents(pre); getSelection().removeAllRanges(); getSelection().addRange(r); }
+    b.innerHTML = `${ICON.check} Copied`; setTimeout(() => (b.innerHTML = `${ICON.copy} Copy`), 1800);
+  }));
 }
 function wireDevices() {
   fillDevices();
@@ -222,16 +303,16 @@ function renderDevice(d) {
   const lk = d.lookups_detail.map((l) => `<tr><td class="mono">${esc(l.name)}${l.blocked ? ' <span class="chip bad">blocked</span>' : ""}</td><td class="num">${l.count}</td><td class="mono">${esc(l.addresses.join(", "))}</td><td>${when(l.last)}</td></tr>`).join("");
   const cn = d.connections.map((c) => `<tr><td class="mono">${esc(c.dst)}${c.local ? ' <span class="chip">local</span>' : ""}</td><td>${c.dport}/${esc(c.proto)}</td><td class="mono">${c.names.length ? esc(c.names.join(", ")) : (c.local ? "" : '<span class="chip warn">no lookup</span>')}</td><td class="num">${bytes(c.bytes_out)}</td><td class="num">${bytes(c.bytes_in)}</td><td>${when(c.last)}</td></tr>`).join("");
   return `<section>
-    <a class="back" href="#/devices">${ICON.back} All devices</a>
+    <a class="back" href="${d.service ? "#/services" : "#/devices"}">${ICON.back} ${d.service ? "All services" : "All devices"}</a>
     <div class="dhead">${kind(d.kind)}
       <div><div class="dtitle"><h1 id="dname">${esc(d.name || d.client)}</h1><button class="edit" id="rename" aria-label="Rename" title="Rename">${ICON.pencil}</button></div>
-      <div class="muted">${esc(d.client)} · ${esc(d.summary)}</div></div>${ring(d)}</div>
+      <div class="muted">${d.service ? `Runs on <b>${esc(d.service.host)}</b>${d.service.image ? " · <span class='mono'>" + esc(d.service.image) + "</span>" : ""}${d.service.ports.length ? " · ports " + esc(d.service.ports.join(", ")) : ""}` : esc(d.client)} · ${esc(d.summary)}</div></div>${ring(d)}</div>
     <div class="cols">
       <div class="card pad"><h2 style="margin-top:0">Why it got ${esc(d.grade)}</h2><ul class="reasons">${reasons || "<li>Not enough data yet.</li>"}</ul></div>
       <div class="card pad"><div class="kpis">
         <div class="kpi"><b>${bytes(d.per_day_out)}</b><span>sent per day (estimate)</span></div>
         <div class="kpi"><b>${plural(d.company_count, "company", "companies")}</b><span>it talks to</span></div>
-        <div class="kpi"><b>${d.lookups}</b><span>lookups kept</span></div>
+        <div class="kpi"><b>${d.lookups}</b><span>${d.service ? "lookups by its server that match" : "lookups kept"}</span></div>
         <div class="kpi"><b>${ago(d.last)}</b><span>last seen</span></div></div>
         <div style="margin-top:18px">${barChart(d.activity)}</div></div>
     </div>
