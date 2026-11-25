@@ -236,10 +236,15 @@ class Store:
                             "first": f, "last": l, "addresses": sorted(addrs)[:8]})
             first, last = min(first or f, f), max(last or l, l)
         conns = {}
+        # Home devices reached over IPv6 use the ISP's public prefix, so "private" isn't enough:
+        # anything in the same /64 as the server is at home too.
+        home64 = {ipaddress.ip_network(f"{h}/64", strict=False) for h in (svc["host_ips"] if svc else [])
+                  if ":" in h and not h.startswith("fe80")}
+        local = lambda a: is_private(a) or (":" in a and any(ipaddress.ip_address(a) in n for n in home64))
         for _c, proto, dst, dport, ob, ib, f, l in self._conn_totals(client):
             c = conns.setdefault((proto, dst, dport), {
                 "proto": proto, "dst": dst, "dport": dport, "connections": 0, "bytes_out": 0, "bytes_in": 0,
-                "first": f, "last": l, "local": is_private(dst), "names": sorted(by_addr.get(dst, ()))})
+                "first": f, "last": l, "local": local(dst), "names": sorted(by_addr.get(dst, ()))})
             c["connections"] += 1
             c["bytes_out"] += ob
             c["bytes_in"] += ib
