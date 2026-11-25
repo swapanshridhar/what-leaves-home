@@ -25,6 +25,13 @@ DOH_NAMES = ("dns.google", "cloudflare-dns.com", "one.one.one.one", "dns.quad9.n
              "dns.nextdns.io", "doh.dns.apple.com", "mozilla.cloudflare-dns.com")
 
 
+def plaintext_conns(raw):
+    """Unencrypted connections to the internet (web, FTP, Telnet, video). Certificate checks
+    (OCSP, CRL) use plain HTTP by design, on every device, so they don't count."""
+    return [c for c in raw["connections"] if not c["local"] and c["proto"] == "tcp" and c["dport"] in PLAINTEXT_PORTS
+            and not (c["names"] and all(is_cert_check(n) for n in c["names"]))]
+
+
 def outside_dns(raw):
     """Connections where a device asks a DNS server on the internet itself, going around the
     DNS filter: plain DNS (53), DNS over TLS (853), or a known DNS-over-HTTPS service.
@@ -208,8 +215,8 @@ def assess(raw, comps, server=False):
     others = [c for c in makers[1:] if not (own and c["company"] in CLOUD_PLATFORMS)]
     bypass = outside_dns(raw)
     unexplained = [c for c in raw["connections"] if not c["local"] and not c["names"] and c not in bypass]
-    plaintext = sorted({c["dport"] for c in raw["connections"]
-                        if not c["local"] and c["proto"] == "tcp" and c["dport"] in PLAINTEXT_PORTS})
+    plain = plaintext_conns(raw)
+    plaintext = sorted({c["dport"] for c in plain})
     remote = [c for c in raw["connections"] if not c["local"]]
     days = _span_days(min((c["first"] for c in remote), default=None), max((c["last"] for c in remote), default=None))
     per_day = sum(c["bytes_out"] for c in remote) / days
@@ -218,16 +225,19 @@ def assess(raw, comps, server=False):
         n = sum(c["lookups"] for c in tracking)
         score -= 35 if n >= 20 else 20
         names = ", ".join(c["company"] for c in tracking[:3])
-        reasons.append({"level": "bad", "text": f"Contacted ad or tracking services {plural(n, 'time')}: {names}"})
+        reasons.append({"level": "bad", "text": f"Looked up ad or tracking services {plural(n, 'time')}: {names}"})
     if tried:
         n = sum(c["lookups"] for c in tried)
         score -= 5
         reasons.append({"level": "warn", "text": f"Tried to reach ad or tracking services {plural(n, 'time')}, and your DNS filter "
                         f"blocked every one: {', '.join(c['company'] for c in tried[:3])}"})
     if plaintext:
-        score -= 20
-        reasons.append({"level": "bad", "text": "Sent unencrypted " +
-                        ", ".join(PLAINTEXT_PORTS[p] for p in plaintext) + " traffic to the internet"})
+        # What it was for matters: logos or an update download are a weakness, not data about you.
+        score -= 10
+        where = sorted({c["names"][0] if c["names"] else c["dst"] for c in plain})
+        reasons.append({"level": "warn", "text": "Used unencrypted " + ", ".join(PLAINTEXT_PORTS[p] for p in plaintext)
+                        + " with " + ", ".join(where[:3]) + (f" and {len(where) - 3} more" if len(where) > 3 else "")
+                        + ": anyone along the way could read or change it"})
     if others and not server:
         score -= min(8 * len(others), 24)
         reasons.append({"level": "warn", "text": f"Talks to {len(others)} other "
@@ -289,11 +299,12 @@ def actions_for(raw, comps, a):
                      "text": "Your AdGuard is already refusing its ad and tracking lookups: "
                              + ", ".join(sorted(already)) + ".", "rules": []})
     remote = [c for c in raw["connections"] if not c["local"]]
-    if any(c["proto"] == "tcp" and c["dport"] in PLAINTEXT_PORTS for c in remote):
-        acts.append({"level": "bad", "title": "Check for a firmware update",
-                     "text": "It sent unencrypted traffic to the internet, which anyone along the way can read. "
-                             "That's often an old update check. Update its firmware; if it keeps happening, keep "
-                             "it on a guest or IoT network.", "rules": []})
+    if plaintext_conns(raw):
+        acts.append({"level": "warn", "title": "Check for a firmware update",
+                     "text": "Some of its traffic isn't encrypted, so anyone along the way could read or change it. "
+                             "Often it's an update check, logos or an old service. The names under Technical "
+                             "details show what it was. Update its firmware; if it keeps happening, keep it on "
+                             "a guest or IoT network.", "rules": []})
     if outside_dns(raw):
         acts.append({"level": "bad", "title": "Make it use your DNS filter",
                      "text": "It has its own DNS server built in, so some of its lookups skip AdGuard or Pi-hole and "

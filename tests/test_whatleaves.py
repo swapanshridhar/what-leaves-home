@@ -491,6 +491,11 @@ class Naming(unittest.TestCase):
         self.assertTrue(is_cert_check("ocsp.digicert.com") and is_cert_check("r3.o.lencr.org"))
         self.assertFalse(is_cert_check("status.example.com") or is_cert_check("api.samsung.com"))
 
+    def test_certificate_checks_are_not_unencrypted_findings(self):
+        conn = lambda names: {"local": False, "names": names, "dport": 80, "proto": "tcp", "dst": "203.0.113.5"}
+        self.assertEqual(analysis.plaintext_conns({"connections": [conn(["ocsp.digicert.com"])]}), [])
+        self.assertEqual(len(analysis.plaintext_conns({"connections": [conn(["aic-ngfts.lge.com"])]})), 1)
+
     def test_outside_dns_is_its_own_finding(self):
         conn = lambda dport, names=(): {"local": False, "names": list(names), "dport": dport, "proto": "udp", "dst": "8.8.8.8"}
         raw = {"connections": [conn(53), conn(443)], "lookups": []}

@@ -8,14 +8,14 @@ Status: early (0.8). Grades are a first version: simple rules, always shown with
 
 <picture>
   <source media="(prefers-color-scheme: dark)" srcset="docs/screenshots/overview-dark.png">
-  <img alt="The overview: devices graded A to F, with the biggest finding first. Here a TV contacted a viewing-data service 400 times." src="docs/screenshots/overview.png">
+  <img alt="The overview: devices graded A to F, with the biggest finding first. Here a TV looked up a viewing-data service 400 times." src="docs/screenshots/overview.png">
 </picture>
 
 <sub>Screenshots are from the live demo, with made-up devices.</sub>
 
 ## What you get
 
-- **A verdict per device, in plain words.** An A to F grade with the reasons ("Contacted ad or tracking services 400 times", "Every connection was encrypted", "Talks only to LG"), and the one finding worth looking at first.
+- **A verdict per device, in plain words.** An A to F grade with the reasons ("Looked up ad or tracking services 400 times", "Every connection was encrypted", "Talks only to LG"), and the one finding worth looking at first.
 - **Companies and countries, not IP addresses.** "LG, hosted on Amazon Web Services, US", with the exact names and addresses one click away. Destinations nothing looked up are still labelled by what they are ("Time server", "Encrypted messaging", "Tailscale relays").
 - **What to do about it.** Ready-to-paste block rules for AdGuard Home or Pi-hole for the trackers that got through, plus a firmware or settings nudge where it fits. The overview gathers one block list for the whole home.
 - **Your home servers, app by app.** A small agent on each server tells apart which container or service phones home to whom: Jellyfin, Home Assistant, the media apps, anything in Docker or systemd.
@@ -146,7 +146,7 @@ Connections and data volumes need a source that records them, such as the collec
 
 ### How grades work
 
-Every device starts at 100. Points come off for: ad or tracking services (blocked by your filter, or on a built-in list), unencrypted web traffic to the internet, talking to companies other than its maker, connecting to addresses it never looked up, and uploading a lot. A is 90 and up and looks fine; B and C are worth a look; D and F are a concern. The reasons are always listed with the grade. This is a first version, and suggestions are welcome.
+Every device starts at 100. Points come off for: ad or tracking services (blocked by your filter, or on a built-in list), using its own DNS server to go around your filter, unencrypted web traffic to the internet (certificate checks, which are plain HTTP on every device, don't count), talking to companies other than its maker, connecting to addresses it never looked up, and uploading a lot. A is 90 and up and looks fine; B and C are worth a look; D and F are a concern. The reasons are always listed with the grade. This is a first version, and suggestions are welcome.
 
 ### Company names and countries
 
