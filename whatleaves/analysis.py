@@ -47,6 +47,10 @@ SERVICE_KINDS = [  # (words in the image or name, kind)
 ]
 
 
+def is_unattributed(name):
+    return (name or "").startswith(("unknown (", "unattributed"))
+
+
 def service_kind(name, image=""):
     n = f"{name} {image}".lower()
     for words, kind in SERVICE_KINDS:
@@ -198,6 +202,9 @@ def device_view(store, owners, client, site_names=None, with_detail=True):
     raw = store.device(client)
     comps = companies_for(raw, owners, site_names)
     a = assess(raw, comps)
+    if not raw["lookups"] and not raw["connections"]:
+        # Nothing seen: no grade rather than a flattering A.
+        a.update(score=100, grade="–", verdict="quiet", label="No traffic seen", reasons=[])
     svc = raw.get("service")
     kind = service_kind(svc["name"], svc["image"]) if svc else kind_of(raw["name"] or "")
     view = {"client": client, "name": raw["name"], "kind": kind,
@@ -218,13 +225,15 @@ def device_view(store, owners, client, site_names=None, with_detail=True):
 def overview(store, owners, site_names=None):
     devices = [device_view(store, owners, d["client"], site_names, with_detail=False) for d in store.devices()]
     services = [device_view(store, owners, s["id"], site_names, with_detail=False) for s in store.services()]
-    counts = {"total": len(devices) + len(services), "good": 0, "check": 0, "concern": 0,
+    counts = {"total": len(devices) + len(services), "good": 0, "check": 0, "concern": 0, "quiet": 0,
               "devices": len(devices), "services": len(services)}
     for d in devices + services:
         counts[d["verdict"]] += 1
     # The finding to show first: the worst reason on the lowest-scoring device.
     finding = None
     for d in sorted(devices + services, key=lambda d: d["score"]):
+        if is_unattributed(d["name"]):
+            continue  # connections the agent couldn't tie to a program aren't the headline
         bad = [r for r in d["reasons"] if r["level"] in ("bad", "warn")]
         if bad:
             finding = {"client": d["client"], "device": d["name"] or d["client"], "verdict": d["verdict"],
@@ -248,8 +257,9 @@ def overview(store, owners, site_names=None):
     things = " and ".join(x for x in (
         f"{len(devices)} device{'s' if len(devices) != 1 else ''}" if devices or not services else "",
         f"{len(services)} service{'s' if len(services) != 1 else ''}" if services else "") if x)
+    seen = counts["total"] - counts["quiet"]
     headline = (f"{things} watched. " +
-                ("All look fine." if counts["total"] and counts["good"] == counts["total"] else
+                ("All look fine." if seen and counts["good"] == seen else
                  f"{counts['concern']} need{'s' if counts['concern'] == 1 else ''} attention, "
                  f"{counts['check']} worth a look." if counts["total"] else "Waiting for the first data."))
     return {"counts": counts, "headline": headline, "finding": finding, "devices": devices, "services": services,

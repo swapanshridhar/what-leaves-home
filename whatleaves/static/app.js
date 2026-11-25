@@ -282,11 +282,11 @@ function wireDevices() {
 /* ---------- one device */
 function ring(d) {
   const r = 30, c = 2 * Math.PI * r, frac = d.score / 100;
-  const col = { good: "var(--good-ring)", check: "var(--check-ring)", concern: "var(--concern-ring)" }[d.verdict];
+  const col = { good: "var(--good-ring)", check: "var(--check-ring)", concern: "var(--concern-ring)", quiet: "var(--line-2)" }[d.verdict];
   return `<div class="ring"><svg viewBox="0 0 74 74" aria-hidden="true"><circle cx="37" cy="37" r="${r}" fill="none" stroke="var(--line)" stroke-width="7"/>
     <circle cx="37" cy="37" r="${r}" fill="none" stroke="${col}" stroke-width="7" stroke-linecap="round" stroke-dasharray="${(c * frac).toFixed(1)} ${c.toFixed(1)}" transform="rotate(-90 37 37)"/>
     <text x="37" y="45" text-anchor="middle" class="gl" fill="${col}">${esc(d.grade)}</text></svg>
-    <div><div class="badge ${d.verdict}">${esc(d.label)}</div><div class="muted" style="font-size:12.5px;margin-top:6px">Score ${d.score} of 100</div></div></div>`;
+    <div><div class="badge ${d.verdict}">${esc(d.label)}</div><div class="muted" style="font-size:12.5px;margin-top:6px">${d.verdict === "quiet" ? "Nothing to grade yet" : `Score ${d.score} of 100`}</div></div></div>`;
 }
 function renderDevice(d) {
   const sym = { good: "✓", warn: "!", bad: "✕" };
