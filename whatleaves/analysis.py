@@ -188,12 +188,12 @@ def assess(raw, comps, server=False):
         n = sum(c["lookups"] for c in tracking)
         score -= 35 if n >= 20 else 20
         names = ", ".join(c["company"] for c in tracking[:3])
-        reasons.append({"level": "bad", "text": f"Contacted ad or tracking services {plural(n, 'time')} ({names})"})
+        reasons.append({"level": "bad", "text": f"Contacted ad or tracking services {plural(n, 'time')}: {names}"})
     if tried:
         n = sum(c["lookups"] for c in tried)
         score -= 5
-        reasons.append({"level": "warn", "text": f"Tried to reach ad or tracking services {plural(n, 'time')} "
-                        f"({', '.join(c['company'] for c in tried[:3])}); your DNS filter blocked every one"})
+        reasons.append({"level": "warn", "text": f"Tried to reach ad or tracking services {plural(n, 'time')}, and your DNS filter "
+                        f"blocked every one: {', '.join(c['company'] for c in tried[:3])}"})
     if plaintext:
         score -= 20
         reasons.append({"level": "bad", "text": "Sent unencrypted " +

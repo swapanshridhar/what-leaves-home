@@ -4,6 +4,13 @@ What Leaves Home shows what each device, and each app on your home servers, talk
 
 Status: early (0.7). Grades are a first version: simple rules, always shown with their reasons.
 
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="docs/screenshots/overview-dark.png">
+  <img alt="The overview: devices graded A to F, with the biggest finding first. Here a TV contacted a viewing-data service 400 times." src="docs/screenshots/overview.png">
+</picture>
+
+<sub>Screenshots are from the live demo, with made-up devices.</sub>
+
 ## What you get
 
 - **A verdict per device, in plain words.** An A to F grade with the reasons ("Contacted ad or tracking services 400 times", "Every connection was encrypted", "Talks only to LG"), and the one finding worth looking at first.
@@ -126,6 +133,10 @@ All settings are environment variables, in `.env` when using Docker.
 - **What you can do**: on each device or service page, concrete next steps, such as ready-to-paste AdGuard rules for its ad and tracking services, or a nudge to update firmware. The overview collects every rule your home needs in one block list.
 - **Companies**: everyone your devices talk to, and which devices.
 - **This app**: every network request What Leaves Home itself has made (see Privacy).
+
+![A device page: why the TV got an F, the AdGuard rule to block its viewing-data service, and who it talks to by company and country.](docs/screenshots/device-tv.png)
+
+![The This app page: every request What Leaves Home itself has made. In the demo, one download of the address-ownership list and reads of the local AdGuard.](docs/screenshots/this-app.png)
 
 Connections and data volumes need a source that records them, such as the collector in [docs/collector.md](docs/collector.md). AdGuard alone only knows lookups.
 
