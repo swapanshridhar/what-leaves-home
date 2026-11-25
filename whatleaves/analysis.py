@@ -59,6 +59,10 @@ def service_kind(name, image=""):
     return "service"
 
 
+def plural(n, word):
+    return f"{n} {word}" + ("" if n == 1 else "s")
+
+
 def kind_of(name):
     n = f" {name.lower()} "
     for words, kind in KINDS:
@@ -130,10 +134,14 @@ def companies_for(raw, owners, site_names=None):
     return sorted(out, key=lambda e: -(e["bytes_out"] + e["bytes_in"] + e["lookups"] * 200))
 
 
-def assess(raw, comps):
-    """Score, grade, verdict and the reasons, good and bad."""
+def assess(raw, comps, server=False):
+    """Score, grade, verdict and the reasons, good and bad. A server (a machine whose services
+    report through an agent) isn't marked down for talking to many companies: its services are."""
     score, reasons = 100, []
-    tracking = [c for c in comps if c["tracking"]]
+    blocked_only = {l["site"] for l in raw["lookups"] if l["blocked"] and l["blocked"] >= l["count"]}
+    tried = [c for c in comps if c["tracking"] and {company_for_site(site(d["name"])) for d in c["domains"]}
+             and all(site(d["name"]) in blocked_only for d in c["domains"])]
+    tracking = [c for c in comps if c["tracking"] and c not in tried]
     # Unexplained destinations are counted once, below, not as extra companies.
     makers = [c for c in comps if not c["tracking"] and not c["time"] and not c["unexplained"]]
     maker = makers[0]["company"] if makers else ""
@@ -149,12 +157,17 @@ def assess(raw, comps):
         n = sum(c["lookups"] for c in tracking)
         score -= 35 if n >= 20 else 20
         names = ", ".join(c["company"] for c in tracking[:3])
-        reasons.append({"level": "bad", "text": f"Contacted ad or tracking services {n} times ({names})"})
+        reasons.append({"level": "bad", "text": f"Contacted ad or tracking services {plural(n, 'time')} ({names})"})
+    if tried:
+        n = sum(c["lookups"] for c in tried)
+        score -= 5
+        reasons.append({"level": "warn", "text": f"Tried to reach ad or tracking services {plural(n, 'time')} "
+                        f"({', '.join(c['company'] for c in tried[:3])}); your DNS filter blocked every one"})
     if plaintext:
         score -= 20
         reasons.append({"level": "bad", "text": "Sent unencrypted " +
                         ", ".join(PLAINTEXT_PORTS[p] for p in plaintext) + " traffic to the internet"})
-    if others:
+    if others and not server:
         score -= min(8 * len(others), 24)
         reasons.append({"level": "warn", "text": f"Talks to {len(others)} other "
                         f"compan{'y' if len(others) == 1 else 'ies'} besides {maker or 'its maker'}: "
@@ -171,11 +184,13 @@ def assess(raw, comps):
         score -= 10
         reasons.append({"level": "warn", "text": f"Uploads about {human_bytes(per_day)} a day"})
 
-    if not tracking:
+    if not tracking and not tried:
         reasons.append({"level": "good", "text": "No ad or tracking services seen"})
     if raw["connections"] and not plaintext:
         reasons.append({"level": "good", "text": "Every internet connection seen was on an encrypted port"})
-    if maker and not others:
+    if server:
+        reasons.append({"level": "good", "text": "A server: what each of its apps sends is graded under Services"})
+    elif maker and not others:
         reasons.append({"level": "good", "text": f"Talks only to {maker}"
                         + (" and a time service" if any(c["time"] for c in comps) else "")})
     for floor, grade, verdict, label in VERDICTS:
@@ -241,7 +256,8 @@ def summary_line(a, comps, per_day):
 def device_view(store, owners, client, site_names=None, with_detail=True):
     raw = store.device(client)
     comps = companies_for(raw, owners, site_names)
-    a = assess(raw, comps)
+    server = not client.startswith("svc:") and any(client in s["host_ips"] for s in store.services())
+    a = assess(raw, comps, server)
     if not raw["lookups"] and not raw["connections"]:
         # Nothing seen: no grade rather than a flattering A.
         a.update(score=100, grade="–", verdict="quiet", label="No traffic seen", reasons=[])

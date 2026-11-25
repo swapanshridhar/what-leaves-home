@@ -247,7 +247,8 @@ class DemoSource:
             ("api.tv-maker.example", 120, "203.0.113.10", 443, 4, False),
             ("firmware.tv-maker.example", 6, "203.0.113.12", 80, 1, False),
             ("ads.adnetwork.example", 300, "203.0.113.20", 443, 0, True),
-            ("acr.viewing-data.example", 400, "203.0.113.30", 443, 0, True),
+            # Viewing-data trackers (ACR) often aren't on blocklists: this one gets through.
+            ("acr.viewing-data.example", 400, "203.0.113.30", 443, 1.5, False),
             ("cdn.streaming.example", 60, "203.0.113.70", 443, 2, False)]),
         "192.168.1.34": ("Kitchen speaker", [
             ("voice.speaker-cloud.example", 90, "203.0.113.40", 443, 6, False),

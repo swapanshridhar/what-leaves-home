@@ -87,10 +87,11 @@ class Analysis(unittest.TestCase):
         tv = analysis.device_view(store, owners, "192.168.1.21", DemoSource.SITE_NAMES)
         titles = [a["title"] for a in tv["actions"]]
         self.assertIn("Check for a firmware update", titles)  # it used plain HTTP
-        # Its ad lookups were all refused by the filter, so it says so instead of suggesting rules.
-        self.assertIn("Already blocked", titles)
+        block = next(a for a in tv["actions"] if a["title"] == "Block its ad and tracking services")
+        self.assertEqual(block["rules"], ["||viewing-data.example^"])  # the ad network was already blocked
+        self.assertTrue(any("blocked every one" in r["text"] for r in tv["reasons"]))
         rules = {r["rule"] for r in o["block_rules"]}
-        self.assertIn("||analytics-vendor.example^", rules)  # the photo-backup service's tracker, not blocked yet
+        self.assertTrue({"||analytics-vendor.example^", "||viewing-data.example^"} <= rules)
 
     def test_running_totals_are_not_double_counted(self):
         store = Store(":memory:")
