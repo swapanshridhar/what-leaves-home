@@ -27,7 +27,9 @@ import http.client
 import json
 import os
 import re
+import shutil
 import socket
+import subprocess
 import sys
 import time
 import urllib.parse
@@ -156,19 +158,37 @@ def pid_service(pid, by_container_id):
 
 # ----- the connection table
 
+def conntrack_lines():
+    """The connection table: /proc where the kernel offers it, else the `conntrack` tool
+    (some kernels, such as Raspberry Pi OS's, are built without the /proc view)."""
+    if os.path.exists(CONNTRACK):
+        with open(CONNTRACK) as f:
+            yield from f
+        return
+    for family in ("ipv4", "ipv6"):
+        out = subprocess.run(["conntrack", "-L", "-o", "extended", "-f", family],
+                             capture_output=True, text=True, timeout=60).stdout
+        yield from out.splitlines()
+
+
+def can_read_table():
+    if os.path.exists(CONNTRACK):
+        return os.access(CONNTRACK, os.R_OK)
+    return shutil.which("conntrack") is not None and os.geteuid() == 0
+
+
 def conntrack_rows():
-    with open(CONNTRACK) as f:
-        for line in f:
-            t = line.split()
-            orig, reply = {}, {}
-            for x in t:
-                if "=" in x:
-                    k, v = x.split("=", 1)
-                    (reply if k in orig else orig)[k] = v
-            if {"src", "dst", "sport", "dport"} <= orig.keys() and t[2] in ("tcp", "udp"):
-                yield {"proto": t[2], "src": orig["src"], "dst": orig["dst"], "sport": int(orig["sport"]),
-                       "dport": int(orig["dport"]), "out_bytes": int(orig.get("bytes", 0)),
-                       "in_bytes": int(reply.get("bytes", 0))}
+    for line in conntrack_lines():
+        t = line.split()
+        orig, reply = {}, {}
+        for x in t:
+            if "=" in x:
+                k, v = x.split("=", 1)
+                (reply if k in orig else orig)[k] = v
+        if {"src", "dst", "sport", "dport"} <= orig.keys() and t[2] in ("tcp", "udp"):
+            yield {"proto": t[2], "src": orig["src"], "dst": orig["dst"], "sport": int(orig["sport"]),
+                   "dport": int(orig["dport"]), "out_bytes": int(orig.get("bytes", 0)),
+                   "in_bytes": int(reply.get("bytes", 0))}
 
 
 def is_local(addr):
@@ -225,8 +245,9 @@ def main():
         token = open(os.environ["WL_TOKEN_FILE"]).read().strip()
     if not url or not token:
         sys.exit("Set WL_URL and WL_TOKEN (or WL_TOKEN_FILE). The token is on What Leaves Home's Settings page.")
-    if not os.access(CONNTRACK, os.R_OK):
-        sys.exit(f"Can't read {CONNTRACK}: run as root, with the nf_conntrack module loaded.")
+    if not can_read_table():
+        sys.exit("Can't read the connection table: run as root. On kernels without /proc/net/nf_conntrack "
+                 "install the conntrack tool (apt install conntrack, or apk add conntrack-tools).")
     host_name = os.environ.get("WL_HOST_NAME") or socket.gethostname()
     every = int(os.environ.get("WL_INTERVAL", "300"))
     while True:

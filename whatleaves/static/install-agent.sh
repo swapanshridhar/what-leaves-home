@@ -15,6 +15,17 @@ curl -fsSL "$WL_URL/whatleaves-agent.py" -o /opt/whatleaves-agent/whatleaves-age
 
 # The connection table, and the kernel counting bytes per connection (for "data sent").
 modprobe nf_conntrack 2>/dev/null || true
+if [ ! -e /proc/net/nf_conntrack ] && ! command -v conntrack >/dev/null; then
+  # Some kernels (Raspberry Pi OS, for one) don't offer /proc/net/nf_conntrack; the conntrack tool reads the same table.
+  if command -v apt-get >/dev/null; then
+    echo "This kernel has no /proc/net/nf_conntrack; installing the conntrack tool to read the connection table"
+    DEBIAN_FRONTEND=noninteractive apt-get install -y -qq conntrack >/dev/null
+  elif command -v apk >/dev/null; then
+    apk add -q conntrack-tools
+  else
+    echo "Install the conntrack tool (it reads the connection table on this kernel), then run this again." >&2; exit 1
+  fi
+fi
 if [ "$(sysctl -n net.netfilter.nf_conntrack_acct 2>/dev/null || echo 0)" != 1 ]; then
   echo "Turning on per-connection byte counts (net.netfilter.nf_conntrack_acct=1; undo: delete /etc/sysctl.d/90-whatleaves-agent.conf)"
   echo net.netfilter.nf_conntrack_acct=1 > /etc/sysctl.d/90-whatleaves-agent.conf
