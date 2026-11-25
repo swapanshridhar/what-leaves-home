@@ -263,3 +263,24 @@ h2 svg { vertical-align: -3px; color: var(--muted); }
 .setup .grid { grid-template-columns: 1fr; }
 .grade.quiet { border-style: dashed; color: var(--muted); }
 .badge.quiet { background: var(--bg-2); color: var(--muted); }
+
+/* ---------- attention-first overview, actions, connect */
+.connectcta { display: flex; align-items: center; gap: 14px; margin-top: 16px; color: var(--ink); background: var(--brand-soft); border-color: transparent; }
+.connectcta:hover { text-decoration: none; box-shadow: var(--shadow-hover); }
+.connectcta .ico { flex: none; width: 36px; height: 36px; border-radius: 10px; display: grid; place-items: center; background: var(--panel); color: var(--brand); }
+.connectcta .ico svg { width: 20px; height: 20px; }
+.connectcta .go { margin-left: auto; color: var(--brand); font-weight: 650; white-space: nowrap; }
+.finelist { gap: 8px; }
+.chip.fine { padding: 5px 10px 5px 5px; font-size: 13px; color: var(--ink); background: var(--panel); border: 1px solid var(--line); }
+.chip.fine:hover { text-decoration: none; border-color: var(--line-2); }
+.chip.fine .g { display: inline-grid; place-items: center; width: 20px; height: 20px; border-radius: 50%; background: var(--good-soft); color: var(--good); font-weight: 800; font-size: 11px; margin-right: 6px; }
+.actions { display: grid; grid-template-columns: repeat(auto-fill, minmax(320px, 1fr)); gap: 14px; }
+.action .at { display: flex; align-items: center; gap: 10px; }
+.action .ico { flex: none; width: 30px; height: 30px; border-radius: 9px; display: grid; place-items: center; background: var(--bg-2); color: var(--ink-2); }
+.action .ico svg { width: 17px; height: 17px; }
+.action.bad .ico { background: var(--concern-soft); color: var(--concern); }
+.action.warn .ico { background: var(--check-soft); color: var(--check); }
+.action.good .ico { background: var(--good-soft); color: var(--good); }
+.action p { margin: 10px 0 4px; color: var(--ink-2); font-size: 14px; }
+.btn[disabled] { opacity: .45; cursor: not-allowed; }
+.btn.ghost { border: 1px solid var(--line-2); }

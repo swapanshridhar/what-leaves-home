@@ -123,6 +123,48 @@ class FilesSource:
         return added
 
 
+def test_adguard(url, user, password):
+    """Try an AdGuard Home login and look at who its recent lookups come from.
+    Returns a dict for the setup page; never raises."""
+    import collections
+    src = AdGuardSource(url, user, password)
+    try:
+        status = src._get("/control/status", purpose="Test the connection to AdGuard Home")
+        log = src._get("/control/querylog", {"limit": 500}, purpose="Test the connection to AdGuard Home")
+    except Exception as exc:  # urllib's errors, bad JSON, bad address
+        code = getattr(exc, "code", None)
+        if code in (401, 403):
+            msg = ("AdGuard Home refused that login. Check the username and password. Some routers' "
+                   "built-in AdGuard accepts only the router's own admin session; see the README.")
+        elif code:
+            msg = f"AdGuard Home answered {code}. Is that the address of its web page?"
+        else:
+            msg = f"Couldn't reach it ({type(exc).__name__}). Check the address and port, e.g. http://192.168.1.2:3000"
+        return {"ok": False, "message": msg}
+    clients = collections.Counter(e.get("client", "") for e in log.get("data") or [])
+    total = sum(clients.values())
+    top, top_n = (clients.most_common(1) or [("", 0)])[0]
+    share = top_n / total if total else 0
+    return {"ok": True, "version": status.get("version", ""), "lookups": total, "clients": len(clients),
+            "top_client": top, "top_share": round(share, 2),
+            # Nearly everything from one address: a router answering DNS for every device.
+            "router_suspect": total >= 50 and share >= 0.8}
+
+
+class SourceHolder:
+    """The current source, swappable while running (the setup page switches from the demo)."""
+
+    def __init__(self, source):
+        self.source = source
+
+    @property
+    def kind(self):
+        return self.source.kind
+
+    def poll(self, store):
+        return self.source.poll(store)
+
+
 class AdGuardLogSource:
     """AdGuard Home's own query-log file (querylog.json, plus querylog.json.1 after a
     rotation), read directly, keeping only the listed client addresses. Use it for

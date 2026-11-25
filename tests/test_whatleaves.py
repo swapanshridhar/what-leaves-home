@@ -81,6 +81,17 @@ class Analysis(unittest.TestCase):
         self.assertIn("Unknown service on Unknown Hosting Ltd", [c["company"] for c in cam["companies"]])
         self.assertFalse(any("Unknown service" in r["text"] for r in cam["reasons"] if "besides" in r["text"]))
 
+    def test_actions_and_home_block_list(self):
+        store, owners = demo_store()
+        o = analysis.overview(store, owners, DemoSource.SITE_NAMES)
+        tv = analysis.device_view(store, owners, "192.168.1.21", DemoSource.SITE_NAMES)
+        titles = [a["title"] for a in tv["actions"]]
+        self.assertIn("Check for a firmware update", titles)  # it used plain HTTP
+        # Its ad lookups were all refused by the filter, so it says so instead of suggesting rules.
+        self.assertIn("Already blocked", titles)
+        rules = {r["rule"] for r in o["block_rules"]}
+        self.assertIn("||analytics-vendor.example^", rules)  # the photo-backup service's tracker, not blocked yet
+
     def test_running_totals_are_not_double_counted(self):
         store = Store(":memory:")
         for t, ob in (("2026-11-24T11:00:00Z", 100), ("2026-11-24T11:05:00Z", 300)):
@@ -150,6 +161,8 @@ class FakeAdGuard(BaseHTTPRequestHandler):
         q = dict(urllib.parse.parse_qsl(url.query))
         if url.path == "/control/clients":
             body = {"clients": [{"name": "TV", "ids": ["10.0.0.9"]}], "auto_clients": []}
+        elif url.path == "/control/status":
+            body = {"version": "v0.107.79"}
         else:
             rows = [e for e in self.log if not q.get("older_than") or e["time"] < q["older_than"]][: int(q["limit"])]
             body = {"data": rows, "oldest": rows[-1]["time"] if rows else ""}
@@ -206,6 +219,25 @@ class Services(unittest.TestCase):
                 scan.targets(bad)
 
 
+class Connect(unittest.TestCase):
+    def test_spots_a_router_answering_for_everyone(self):
+        from whatleaves.sources import test_adguard
+        FakeAdGuard.log = [{"time": f"2026-11-24T10:00:{i % 60:02d}Z", "client": "192.168.1.1" if i % 10 else "192.168.1.9",
+                            "question": {"name": "x.example", "type": "A"}} for i in range(200)]
+        srv = HTTPServer(("127.0.0.1", 0), FakeAdGuard)
+        threading.Thread(target=srv.serve_forever, daemon=True).start()
+        try:
+            url = f"http://127.0.0.1:{srv.server_port}"
+            ok = test_adguard(url, "u", "p")
+            self.assertTrue(ok["ok"] and ok["router_suspect"])
+            self.assertEqual(ok["top_client"], "192.168.1.1")
+            bad = test_adguard(url, "u", "wrong")
+            self.assertFalse(bad["ok"])
+            self.assertIn("refused", bad["message"])
+        finally:
+            srv.shutdown()
+
+
 class Login(unittest.TestCase):
     def test_hashing(self):
         h = hash_password("correct horse")
@@ -233,9 +265,9 @@ class Login(unittest.TestCase):
 class Web(unittest.TestCase):
     def setUp(self):
         self.store, owners = demo_store()
-        status = {"version": "t", "source": "demo", "keep_days": 30, "poll_seconds": 300, "auth": True}
-        self.httpd = serve(App(self.store, status, Auth(self.store), owners, DemoSource.SITE_NAMES, "agent-token"),
-                           "127.0.0.1", 0)
+        self.status = {"version": "t", "source": "demo", "keep_days": 30, "poll_seconds": 300, "auth": True}
+        self.app = App(self.store, self.status, Auth(self.store), owners, DemoSource.SITE_NAMES, "agent-token")
+        self.httpd = serve(self.app, "127.0.0.1", 0)
         threading.Thread(target=self.httpd.serve_forever, daemon=True).start()
         self.base = f"http://127.0.0.1:{self.httpd.server_address[1]}"
         self.cookie = ""
@@ -264,6 +296,26 @@ class Web(unittest.TestCase):
         self.assertEqual(e.exception.code, 401)
         self.assertEqual(json.load(urllib.request.urlopen(req("agent-token")))["ok"], True)
         self.assertIn("svc:nas/backup", [s["id"] for s in self.store.services()])
+
+    def test_saving_a_connection_replaces_the_demo(self):
+        from whatleaves.sources import SourceHolder
+        FakeAdGuard.log = [{"time": "2026-11-24T10:00:00Z", "client": "192.168.1.30", "question": {"name": "a.example", "type": "A"}}]
+        srv = HTTPServer(("127.0.0.1", 0), FakeAdGuard)
+        threading.Thread(target=srv.serve_forever, daemon=True).start()
+        try:
+            self.call("/api/setup", {"user": "admin", "password": "a good password"})
+            self.status["configurable"] = True
+            self.app.holder = SourceHolder(DemoSource())
+            code, r = self.call("/api/connect/save", {"url": f"127.0.0.1:{srv.server_port}", "user": "u", "password": "p"})
+            self.assertEqual((code, r["ok"], r.get("saved")), (200, True, True))
+            self.assertEqual(self.app.holder.kind, "adguard")
+            self.assertEqual(self.store.devices(), [])  # the demo's devices are gone
+            self.app.holder.poll(self.store)
+            self.assertEqual([d["client"] for d in self.store.devices()], ["192.168.1.30"])
+            self.status["configurable"] = False
+            self.assertEqual(self.call("/api/connect/test", {"url": "x"})[0], 409)  # .env decides
+        finally:
+            srv.shutdown()
 
     def test_signed_out_sees_nothing(self):
         self.assertEqual(self.call("/api/session")[1]["auth"], "setup")

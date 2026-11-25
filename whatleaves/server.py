@@ -9,6 +9,7 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
 from . import analysis
 from .auth import COOKIE, SESSION_DAYS
+from .sources import AdGuardSource, test_adguard
 
 STATIC = os.path.join(os.path.dirname(__file__), "static")
 FILES = {"/": ("index.html", "text/html; charset=utf-8"),
@@ -29,6 +30,7 @@ class App:
     def __init__(self, store, status, auth, owners=None, site_names=None, ingest_token=""):
         self.store, self.status, self.auth, self.owners, self.site_names = store, status, auth, owners, site_names
         self.ingest_token = ingest_token
+        self.holder, self.wake = None, None  # set by __main__: the running source, and a poke to poll now
 
 
 def make_handler(app):
@@ -151,6 +153,8 @@ def make_handler(app):
                 except ValueError as e:
                     return self._json({"error": str(e)}, 400)
                 return self._json({"ok": True}, cookie=self._cookie(app.auth.new_session(app.auth.username())))
+            if path in ("/api/connect/test", "/api/connect/save"):
+                return self._connect(body, save=path.endswith("save"))
             if path == "/api/name":
                 client, name = str(body.get("client", "")), str(body.get("name", "")).strip()[:80]
                 if not client:
@@ -158,6 +162,30 @@ def make_handler(app):
                 app.store.set_names({client: name})
                 return self._json({"ok": True})
             return self._json({"error": "not found"}, 404)
+
+        def _connect(self, body, save):
+            """Test (and optionally save) an AdGuard Home connection from the setup page."""
+            if not app.status.get("configurable"):
+                return self._json({"ok": False, "message": "The source is set by environment settings (.env), "
+                                   "so it can't be changed here."}, 409)
+            url = str(body.get("url", "")).strip().rstrip("/")
+            if not url.startswith(("http://", "https://")):
+                url = "http://" + url
+            user, password = str(body.get("user", "")), str(body.get("password", ""))
+            result = test_adguard(url, user, password)
+            if save and result["ok"] and app.holder:
+                app.store.set_meta("adguard_config", json.dumps({"url": url, "user": user, "password": password}))
+                if app.holder.kind.startswith("demo"):
+                    app.store.clear_data()  # the demo's made-up devices go
+                    app.site_names = None
+                    if app.owners:
+                        app.owners.extra = []
+                app.holder.source = AdGuardSource(url, user, password)
+                app.status.update(source="adguard", adguard_url=url, last_error=None)
+                if app.wake:
+                    app.wake.set()
+                result["saved"] = True
+            return self._json(result)
 
         def _ingest(self):
             """An agent's report. Its own token, not a login: agents are scripts."""

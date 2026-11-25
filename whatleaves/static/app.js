@@ -102,7 +102,7 @@ function barChart(points) {
 }
 
 /* ---------- state and routing */
-let overviewCache = null, statusCache = null, deviceFilter = "all", search = "";
+let overviewCache = null, statusCache = null, deviceFilter = "all", search = "", showQuiet = false;
 
 async function loadOverview() { overviewCache = await api("/api/overview"); return overviewCache; }
 
@@ -115,13 +115,14 @@ async function route() {
   const [, view, arg] = (location.hash || "#/").slice(1).split("/");
   const main = $("#main");
   try {
-    if (!view) { setTab("overview"); main.innerHTML = renderOverview(await loadOverview()); }
+    if (!view) { setTab("overview"); main.innerHTML = renderOverview(await loadOverview()); wireCopy(); }
     else if (view === "devices") { setTab("devices"); if (arg) deviceFilter = arg; main.innerHTML = renderDevices(overviewCache || await loadOverview()); wireDevices(); }
-    else if (view === "services") { setTab("devices"); const [o, a] = await Promise.all([overviewCache || loadOverview(), api("/api/agent")]); overviewCache = o; main.innerHTML = renderServices(o, a); wireCopy(); }
-    else if (view === "device") { setTab("devices"); main.innerHTML = renderDevice(await api("/api/device?client=" + encodeURIComponent(decodeURIComponent(arg)))); wireDevice(); }
+    else if (view === "services") { setTab("devices"); const [o, a] = await Promise.all([overviewCache || loadOverview(), api("/api/agent")]); overviewCache = o; main.innerHTML = renderServices(o, a); wireCopy(); wireQuiet(); }
+    else if (view === "device") { setTab("devices"); main.innerHTML = renderDevice(await api("/api/device?client=" + encodeURIComponent(decodeURIComponent(arg)))); wireDevice(); wireCopy(); }
     else if (view === "companies") { setTab("companies"); main.innerHTML = renderCompanies(overviewCache || await loadOverview()); }
     else if (view === "app") { setTab("app"); main.innerHTML = renderApp(await api("/api/app")); }
     else if (view === "settings") { setTab(""); main.innerHTML = renderSettings(); wireSettings(); }
+    else if (view === "connect") { setTab(""); main.innerHTML = renderConnect(); wireConnect(); }
     else location.hash = "#/";
   } catch (e) {
     if (e.message !== "signed out") main.innerHTML = `<div class="card empty">Couldn't load this page: ${esc(e.message)}</div>`;
@@ -142,30 +143,49 @@ async function refreshStatus() {
 /* ---------- overview */
 function renderOverview(o) {
   const c = o.counts;
-  const demo = statusCache?.source === "demo" ? `<div class="demo">You're looking at made-up demo devices. Connect your AdGuard Home (see the README) to see your own network.</div>` : "";
+  const demo = statusCache?.source === "demo"
+    ? `<a class="card pad connectcta" href="#/connect"><span class="ico">${ICON.dns}</span><span><b>These are made-up demo devices.</b> Connect your AdGuard Home to see your own network: it takes a minute.</span><span class="go">Connect →</span></a>` : "";
   const f = o.finding;
   const finding = f ? `<a class="finding ${f.verdict}" href="#/device/${encodeURIComponent(f.client)}">
       <span class="ico">${ICON.alert}</span>
-      <span><div class="k">Biggest finding</div><div class="t">${esc(f.device)}: ${esc(f.text)}</div><span class="go">See what ${esc(f.device)} talks to →</span></span></a>`
-    : c.total ? `<div class="finding good"><span class="ico">${ICON.check}</span><span><div class="k">Biggest finding</div><div class="t">Nothing stands out. Every device looks fine so far.</div></span></div>` : "";
+      <span><div class="k">Biggest finding</div><div class="t">${esc(f.device)}: ${esc(f.text)}</div><span class="go">See what ${esc(f.device)} talks to, and what you can do →</span></span></a>`
+    : c.total ? `<div class="finding good"><span class="ico">${ICON.check}</span><span><div class="k">Biggest finding</div><div class="t">Nothing stands out. Everything with traffic looks fine so far.</div></span></div>` : "";
+  const all = [...o.devices, ...o.services];
+  const attention = all.filter((d) => d.verdict === "concern" || d.verdict === "check").sort((a, b) => a.score - b.score);
+  const fine = all.filter((d) => d.verdict === "good").sort((a, b) => (a.name || a.client).localeCompare(b.name || b.client));
+  const quiet = all.filter((d) => d.verdict === "quiet").length;
+  const anyTile = (d) => (d.service ? serviceTile(d) : tile(d));
+  const fineChip = (d) => `<a class="chip fine" href="#/device/${encodeURIComponent(d.client)}"><span class="g">${esc(d.grade)}</span>${esc(d.name || d.client)}${d.service ? `<span class="muted"> · ${esc(d.service.host)}</span>` : ""}</a>`;
   const total = o.companies.reduce((a, x) => a + x.bytes_out, 0);
   const top = o.companies.filter((x) => x.bytes_out > 0).slice(0, 8);
   const flow = total ? `<div class="card flow"><div class="bar">${top.map((x, i) => `<span style="width:${(100 * x.bytes_out / total).toFixed(2)}%;background:${x.tracking ? "var(--concern-ring)" : PALETTE[i % PALETTE.length]}" title="${esc(x.company)}: ${bytes(x.bytes_out)}"></span>`).join("")}</div>
       <div class="legend">${top.map((x, i) => `<div class="li"><span class="sw" style="background:${x.tracking ? "var(--concern-ring)" : PALETTE[i % PALETTE.length]}"></span><span class="nm">${x.flags.join("")} ${esc(x.company)}</span><span class="vl">${bytes(x.bytes_out)}</span></div>`).join("")}</div></div>` : "";
   const stat = (key, n, label) => `<a class="stat ${key}" href="#/devices/${key}"><div class="n">${n}</div><div class="l">${label}</div></a>`;
+  const rules = o.block_rules || [];
+  const blockCard = rules.length ? `<h2>What your home could block <small>ad and tracking services, across everything</small></h2>
+    <div class="card pad">
+      <p style="margin-top:0">${plural(rules.length, "ad or tracking service")} reached by your devices and services. Paste these into AdGuard Home under <b>Filters → Custom filtering rules</b>. Blocking can switch off some free extras; remove a line if something stops working.</p>
+      ${cmdBlock("AdGuard rules", rules.map((r) => r.rule).join("\n"))}
+      <div class="chips">${rules.slice(0, 12).map((r) => `<span class="chip bad mono">${esc(r.rule)}</span><span class="muted" style="font-size:12px;align-self:center">${esc(r.used_by.join(", "))}</span>`).join("")}</div>
+      ${adguardLink()}
+    </div>` : "";
   return `<section>
     <h1>${esc(o.headline)}</h1>
-    <p class="lede">What each device in your home talks to on the internet, in plain words.</p>
+    <p class="lede">What the devices and services in your home talk to on the internet, in plain words.</p>
     ${demo}
-    <div class="stats">${stat("all", c.total, "Watched")}${stat("good", c.good, "Look fine")}${stat("check", c.check, "Worth a look")}${stat("concern", c.concern, "Concern")}</div>
+    <div class="stats">${stat("all", c.total - c.quiet, "With traffic")}${stat("good", c.good, "Look fine")}${stat("check", c.check, "Worth a look")}${stat("concern", c.concern, "Concern")}</div>
     ${finding}
-    <h2>Your devices <small>sorted by what needs attention</small></h2>
-    ${o.devices.length ? `<div class="grid">${[...o.devices].sort((a, b) => a.score - b.score).map(tile).join("")}</div>` : `<div class="card empty">No devices yet. They appear after the first read.</div>`}
-    <h2>Your services <small>apps on your home servers</small></h2>
-    ${o.services.length ? `<div class="grid">${[...o.services].sort((a, b) => a.score - b.score).slice(0, 6).map(serviceTile).join("")}</div>${o.services.length > 6 ? `<p><a href="#/services">All ${o.services.length} services →</a></p>` : ""}`
-      : `<a class="card pad finding good" href="#/services"><span class="ico">${ICON.service}</span><span><div class="t">See what each app on your servers sends out</div><span class="go">Set up services: one command per server →</span></span></a>`}
+    ${attention.length ? `<h2>Needs a look <small>worst first</small></h2><div class="grid">${attention.map(anyTile).join("")}</div>` : ""}
+    ${blockCard}
+    ${fine.length ? `<h2>Looking fine <small>${plural(fine.length, "device or service", "devices and services")}</small></h2><div class="chips finelist">${fine.slice(0, 24).map(fineChip).join("")}${fine.length > 24 ? `<a class="chip" href="#/devices">+${fine.length - 24} more</a>` : ""}</div>` : ""}
+    ${quiet ? `<p class="muted" style="margin-top:14px">${plural(quiet, "service")} had no traffic and ${quiet === 1 ? "isn't" : "aren't"} shown here. <a href="#/services">See all services →</a></p>` : ""}
+    ${!o.services.length ? `<a class="card pad finding good" href="#/services" style="margin-top:22px"><span class="ico">${ICON.service}</span><span><div class="t">See what each app on your servers sends out</div><span class="go">Set up services: one command per server →</span></span></a>` : ""}
     ${flow ? `<h2>Where your data goes <small>data sent, by company</small></h2>${flow}` : ""}
   </section>`;
+}
+function adguardLink() {
+  const u = statusCache?.adguard_url;
+  return u ? `<p style="margin-bottom:0"><a href="${esc(u)}/#custom_rules" target="_blank" rel="noopener">Open AdGuard's custom rules →</a></p>` : "";
 }
 
 function tile(d) {
@@ -209,13 +229,22 @@ function fillDevices() {
       : `<div class="empty">No devices match.</div>`);
 }
 function renderServices(o, a) {
-  const byHost = {};
-  o.services.forEach((s) => (byHost[s.service.host] = byHost[s.service.host] || []).push(s));
-  const hosts = Object.keys(byHost).sort().map((h) => `<h2>${ICON.service.replace("<svg", '<svg width="18" height="18"')} ${esc(h)} <small>${plural(byHost[h].length, "service")}</small></h2>
-    <div class="grid">${byHost[h].sort((x, y) => x.score - y.score).map(serviceTile).join("")}</div>`).join("");
+  const byHost = {}, quietBy = {};
+  o.services.forEach((s) => {
+    const h = s.service.host;
+    if (s.verdict === "quiet" && !showQuiet) quietBy[h] = (quietBy[h] || 0) + 1;
+    else (byHost[h] = byHost[h] || []).push(s);
+  });
+  const nQuiet = Object.values(quietBy).reduce((a, b) => a + b, 0);
+  const hostNames = [...new Set([...Object.keys(byHost), ...Object.keys(quietBy)])].sort();
+  const hosts = hostNames.map((h) => `<h2>${ICON.service.replace("<svg", '<svg width="18" height="18"')} ${esc(h)} <small>${plural((byHost[h] || []).length, "with traffic", "with traffic")}${quietBy[h] ? `, ${quietBy[h]} quiet` : ""}</small></h2>
+    ${byHost[h] ? `<div class="grid">${byHost[h].sort((x, y) => x.score - y.score).map(serviceTile).join("")}</div>` : `<p class="muted">Nothing from this server has talked to the internet yet.</p>`}`).join("");
+  const quietToggle = (nQuiet || showQuiet) && o.services.some((s) => s.verdict === "quiet")
+    ? `<button class="btn ghost" id="quiet">${showQuiet ? "Hide quiet services" : `Show ${plural(nQuiet, "quiet service")}`}</button>` : "";
   return `<section>${dsToggle("services", o)}
     <h1>Services</h1>
     <p class="lede">The apps running on your home servers, and what each one sends out. A small agent on each server tells them apart.</p>
+    ${quietToggle ? `<div class="toolbar">${quietToggle}<span class="muted">Quiet means no internet traffic seen yet.</span></div>` : ""}
     ${hosts || ""}
     ${setupPanel(a, o.services.length === 0)}
     ${scanPanel(o.scan)}</section>`;
@@ -261,6 +290,9 @@ function scanPanel(rows) {
   if (!rows.length) return `<h2>Listening on your network</h2><div class="card pad muted">Off. Set <span class="mono">WL_SCAN_TARGETS</span> to your home range (for example 192.168.1.0/24) to check daily for services listening on common ports. It only accepts private ranges, and every scan is listed on the This app tab.</div>`;
   const tr = rows.map((r) => `<tr><td class="mono">${esc(r.ip)}</td><td class="num">${r.port}</td><td>${esc(r.guess)}</td><td>${esc(r.title)}</td><td>${ago(r.last_seen)}</td></tr>`).join("");
   return `<h2>Listening on your network <small>from the daily scan</small></h2><div class="card pad scroll"><table><thead><tr><th>Address</th><th class="num">Port</th><th>Probably</th><th>Page title</th><th>Last seen</th></tr></thead><tbody>${tr}</tbody></table></div>`;
+}
+function wireQuiet() {
+  $("#quiet")?.addEventListener("click", () => { showQuiet = !showQuiet; route(); });
 }
 function wireCopy() {
   document.querySelectorAll(".copy").forEach((b) => b.addEventListener("click", async () => {
@@ -316,12 +348,18 @@ function renderDevice(d) {
         <div class="kpi"><b>${ago(d.last)}</b><span>last seen</span></div></div>
         <div style="margin-top:18px">${barChart(d.activity)}</div></div>
     </div>
+    ${d.actions && d.actions.length ? `<h2>What you can do</h2><div class="actions">${d.actions.map(actionCard).join("")}</div>` : ""}
     <h2>Who it talks to <small>by company, biggest first</small></h2>
     <div class="grid">${comps || '<div class="card empty">Nothing seen yet.</div>'}</div>
     <details class="card tech"><summary>Technical details: every lookup and connection</summary>
       <div class="pad"><h3>Lookups</h3><div class="scroll"><table><thead><tr><th>Name</th><th class="num">Times</th><th>Answers</th><th>Last</th></tr></thead><tbody>${lk || '<tr><td colspan="4" class="muted">None</td></tr>'}</tbody></table></div>
       <h3 style="margin-top:22px">Connections</h3><div class="scroll"><table><thead><tr><th>Address</th><th>Port</th><th>Looked up as</th><th class="num">Sent</th><th class="num">Received</th><th>Last</th></tr></thead><tbody>${cn || '<tr><td colspan="6" class="muted">None recorded. Connections need a source that records them, such as the collector.</td></tr>'}</tbody></table></div></div>
     </details></section>`;
+}
+function actionCard(a) {
+  const ico = { bad: ICON.alert, warn: ICON.alert, good: ICON.check, info: ICON.globe }[a.level] || ICON.check;
+  return `<div class="card pad action ${a.level}"><div class="at"><span class="ico">${ico}</span><b>${esc(a.title)}</b></div>
+    <p>${esc(a.text)}</p>${a.rules.length ? cmdBlock("AdGuard rules", a.rules.join("\n")) + adguardLink() : ""}</div>`;
 }
 function wireDevice() {
   const btn = $("#rename");
@@ -382,6 +420,9 @@ function renderSettings() {
       <button class="btn">Change password</button><div class="msg" id="pwmsg"></div></form>
       <h2>Sign out</h2><div class="card pad"><button class="btn ghost" id="logout">Sign out</button></div>`
       : `<div class="card pad">Login is off (WL_AUTH=off): something in front of this app handles sign-in.</div>`}
+    <h2>Data source</h2><div class="card pad">${statusCache?.configurable
+      ? `Reading from <b>${esc({ adguard: "AdGuard Home", demo: "demo data" }[statusCache.source] || statusCache.source)}</b>${statusCache.adguard_url ? ` at <span class="mono">${esc(statusCache.adguard_url)}</span>` : ""}. <a href="#/connect">${statusCache.source === "demo" ? "Connect your AdGuard Home →" : "Change the connection →"}</a>`
+      : `Set by environment settings (${esc(statusCache?.source || "")}); change them in <span class="mono">.env</span>.`}</div>
     <h2>Names</h2><div class="card pad">Rename a device from its page (the pencil next to its name), or set names in advance with WL_NAMES.</div></section>`;
 }
 function wireSettings() {
@@ -392,6 +433,49 @@ function wireSettings() {
     catch (err) { m.className = "msg err"; m.textContent = err.message; }
   });
   $("#logout")?.addEventListener("click", async () => { await api("/api/logout", {}); boot(); });
+}
+
+/* ---------- connect AdGuard Home */
+function renderConnect() {
+  if (!statusCache?.configurable) return `<section><h1>Connect AdGuard Home</h1><div class="card pad">The source is set by environment settings (.env), so it's changed there, not here.</div></section>`;
+  return `<section><h1>Connect your AdGuard Home</h1>
+    <p class="lede">What Leaves Home reads AdGuard's query log. It only reads; it changes nothing in AdGuard.</p>
+    <div class="cols">
+      <form class="card pad form" id="cform" style="max-width:none">
+        <label>AdGuard Home address<input name="url" placeholder="http://192.168.1.2:3000" value="${esc(statusCache.adguard_url || "")}" required></label>
+        <label>Username<input name="user" autocomplete="off"></label>
+        <label>Password<input type="password" name="password" autocomplete="off"></label>
+        <div style="display:flex;gap:10px"><button class="btn ghost" type="button" id="ctest">Test</button><button class="btn" id="csave" disabled>Save and start reading</button></div>
+        <div class="msg" id="cmsg"></div>
+      </form>
+      <div class="card pad"><h2 style="margin-top:0">Good to know</h2><ul class="why">
+        <li>The address is the one you open AdGuard's web page at, including the port.</li>
+        <li>The login is saved in this app's database on this machine, and used only to read the query log.</li>
+        <li>Saving replaces the demo devices with your own. The first results appear within a minute.</li>
+        <li>If every lookup comes from one address, your router is answering DNS for every device; the test will tell you, and how to fix it.</li>
+      </ul></div>
+    </div><div id="cresult"></div></section>`;
+}
+function wireConnect() {
+  const form = $("#cform");
+  if (!form) return;
+  const data = () => Object.fromEntries(new FormData(form));
+  const show = (r) => {
+    const m = $("#cmsg");
+    m.className = "msg " + (r.ok ? "ok" : "err");
+    m.textContent = r.ok ? `Connected to AdGuard Home ${r.version}: ${r.lookups} recent lookups from ${plural(r.clients, "address", "addresses")}.` : r.message;
+    $("#csave").disabled = !r.ok;
+    $("#cresult").innerHTML = r.ok && r.router_suspect ? `<div class="finding check" style="margin-top:16px"><span class="ico">${ICON.alert}</span><span>
+      <div class="k">Heads up</div><div class="t">${Math.round(r.top_share * 100)}% of lookups come from one address (${esc(r.top_client)}): probably your router.</div>
+      <div>Your router is answering DNS for every device and passing it on, so they'd all show up as one. Fix it by setting AdGuard Home's address as the DNS server in your router's DHCP settings, or see the README section "Every device shows up as my router". You can still save now.</div></span></div>` : "";
+  };
+  $("#ctest").addEventListener("click", async () => { $("#cmsg").textContent = "Testing…"; show(await api("/api/connect/test", data()).catch((e) => e.data || { ok: false, message: e.message })); });
+  form.addEventListener("submit", async (e) => {
+    e.preventDefault();
+    const r = await api("/api/connect/save", data()).catch((err) => err.data || { ok: false, message: err.message });
+    show(r);
+    if (r.saved) { overviewCache = null; await refreshStatus(); setTimeout(() => (location.hash = "#/"), 1200); }
+  });
 }
 
 /* ---------- sign-in gate */

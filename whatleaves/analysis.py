@@ -185,6 +185,46 @@ def assess(raw, comps):
             "maker": maker, "reasons": reasons, "per_day_out": per_day}
 
 
+def actions_for(raw, comps, a):
+    """Concrete next steps for one device or service, each with a short why."""
+    acts = []
+    tracking_sites, already = {}, set()
+    for l in raw["lookups"]:
+        if is_tracking(l["site"]) or l["blocked"]:
+            if l["blocked"] >= l["count"]:
+                already.add(l["site"])
+            else:
+                tracking_sites.setdefault(l["site"], 0)
+                tracking_sites[l["site"]] += l["count"] - l["blocked"]
+    if tracking_sites:
+        acts.append({"level": "bad", "title": "Block its ad and tracking services",
+                     "text": "Paste these rules into AdGuard Home under Filters → Custom filtering rules. "
+                             "Blocking can switch off some free extras, such as recommendations or "
+                             "personalised ads. If something stops working, remove the line.",
+                     "rules": [f"||{s}^" for s in sorted(tracking_sites, key=lambda s: -tracking_sites[s])]})
+    elif already:
+        acts.append({"level": "good", "title": "Already blocked",
+                     "text": "Your AdGuard is already refusing its ad and tracking lookups: "
+                             + ", ".join(sorted(already)) + ".", "rules": []})
+    remote = [c for c in raw["connections"] if not c["local"]]
+    if any(c["proto"] == "tcp" and c["dport"] in PLAINTEXT_PORTS for c in remote):
+        acts.append({"level": "bad", "title": "Check for a firmware update",
+                     "text": "It sent unencrypted traffic to the internet, which anyone along the way can read. "
+                             "That's often an old update check. Update its firmware; if it keeps happening, keep "
+                             "it on a guest or IoT network.", "rules": []})
+    if a["per_day_out"] > 1e8:
+        acts.append({"level": "warn", "title": "Check its cloud settings",
+                     "text": f"It uploads about {human_bytes(a['per_day_out'])} a day. Cameras and vacuums do this "
+                             "when cloud recording, backup or maps are on. Turn those off in its app if you "
+                             "don't use them.", "rules": []})
+    if any(not c["names"] for c in remote):
+        acts.append({"level": "info", "title": "Addresses it never looked up: usually nothing to do",
+                     "text": "Some devices connect to fixed addresses for time, relays or updates. AdGuard can't "
+                             "block those (there's no lookup to refuse). To stop one, block the address in your "
+                             "router's firewall.", "rules": []})
+    return acts
+
+
 def summary_line(a, comps, per_day):
     parts = []
     if a["maker"]:
@@ -217,6 +257,7 @@ def device_view(store, owners, client, site_names=None, with_detail=True):
             "bytes_out": sum(c["bytes_out"] for c in comps), "bytes_in": sum(c["bytes_in"] for c in comps),
             "lookups": sum(l["count"] for l in raw["lookups"]), "company_count": len(comps),
             "activity": store.hourly(client)}
+    view["actions"] = actions_for(raw, comps, a) if view["verdict"] != "quiet" else []
     if with_detail:
         view.update(companies=comps, lookups_detail=raw["lookups"], connections=raw["connections"])
     return view
@@ -262,8 +303,15 @@ def overview(store, owners, site_names=None):
                 ("All look fine." if seen and counts["good"] == seen else
                  f"{counts['concern']} need{'s' if counts['concern'] == 1 else ''} attention, "
                  f"{counts['check']} worth a look." if counts["total"] else "Waiting for the first data."))
+    # One block list for the whole home: every ad or tracking rule any device or service needs.
+    rules = {}
+    for d in devices + services:
+        for act in d["actions"]:
+            for r in act["rules"]:
+                rules.setdefault(r, []).append(d["name"] or d["client"])
+    block = [{"rule": r, "used_by": sorted(set(v))} for r, v in sorted(rules.items(), key=lambda kv: -len(kv[1]))]
     return {"counts": counts, "headline": headline, "finding": finding, "devices": devices, "services": services,
-            "companies": companies, "scan": store.scan_results()}
+            "companies": companies, "scan": store.scan_results(), "block_rules": block}
 
 
 SERVER_PORTS = {8096: "Jellyfin", 8123: "Home Assistant", 8989: "Sonarr", 7878: "Radarr", 9696: "Prowlarr",

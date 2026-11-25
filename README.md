@@ -22,7 +22,9 @@ The first visit asks you to create the login for the page (there is no default p
 
 ## See your own network
 
-What Leaves Home reads AdGuard Home's query log through its web API.
+What Leaves Home reads AdGuard Home's query log through its web API. The easiest way: on the page, click **Connect** (or Settings → Data source), enter AdGuard's address and login, press **Test**, then **Save**. The test also warns you if every lookup comes from one address (your router), and explains the fix.
+
+Or set it in a file instead:
 
 1. Copy the example settings:
 
@@ -102,6 +104,7 @@ All settings are environment variables, in `.env` when using Docker.
   - who it talks to, **by company and country** ("LG, hosted on Amazon Web Services, US"), with the exact names and addresses one click away
   - data sent and received, and a 24-hour activity chart
   - the raw lookups and connections under Technical details
+- **What you can do**: on each device or service page, concrete next steps, such as ready-to-paste AdGuard rules for its ad and tracking services, or a nudge to update firmware. The overview collects every rule your home needs in one block list.
 - **Companies**: everyone your devices talk to, and which devices.
 - **This app**: every network request What Leaves Home itself has made (see Privacy).
 

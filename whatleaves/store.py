@@ -125,6 +125,15 @@ class Store:
         return self.add_conns([{"time": rep["time"], **c, "client": service_id(host, c["service"])}
                                for c in rep.get("conns") or [] if isinstance(c, dict) and c.get("service")])
 
+    def clear_data(self):
+        """Forget everything seen (used when switching from the demo to a real source).
+        Keeps the login, the ingest token and the app's own call record."""
+        with self.lock, self.db:
+            for t in ("lookups", "conns", "names", "services", "scan"):
+                self.db.execute(f"DELETE FROM {t}")
+            self.db.execute("""DELETE FROM meta WHERE key IN
+                ('demo_loaded', 'adguard_last', 'file_offsets', 'adguard_log_inodes')""")
+
     def services(self):
         cols = ("id", "host", "name", "image", "ports", "network", "host_ips", "last_seen")
         out = [dict(zip(cols, r)) for r in self.q(f"SELECT {', '.join(cols)} FROM services ORDER BY host, name")]

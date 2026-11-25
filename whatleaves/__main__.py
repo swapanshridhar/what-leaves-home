@@ -20,6 +20,7 @@
   WL_HOST, WL_PORT      where to listen (default 0.0.0.0:8080)
 """
 
+import json
 import os
 import sys
 import threading
@@ -33,7 +34,7 @@ from . import __version__, net, scan
 from .auth import Auth
 from .enrich import Owners
 from .server import App, serve
-from .sources import AdGuardLogSource, AdGuardSource, DemoSource, FilesSource, Sources
+from .sources import AdGuardLogSource, AdGuardSource, DemoSource, FilesSource, SourceHolder, Sources
 from .store import Store
 
 
@@ -41,7 +42,11 @@ def env(name, default=""):
     return os.environ.get(name, default).strip()
 
 
-def pick_source():
+def configured_by_env():
+    return any(env(k) for k in ("WL_DEMO", "WL_FILES_DIR", "WL_ADGUARD_URL"))
+
+
+def pick_source(store):
     if env("WL_DEMO") == "1":
         return DemoSource()
     if env("WL_FILES_DIR"):
@@ -52,6 +57,9 @@ def pick_source():
             password = open(env("WL_ADGUARD_PASSWORD_FILE")).read().strip()
         clients = [c.strip() for c in env("WL_CLIENTS").split(",") if c.strip()]
         return AdGuardSource(env("WL_ADGUARD_URL"), env("WL_ADGUARD_USER"), password, clients)
+    saved = json.loads(store.get_meta("adguard_config", "{}") or "{}")  # from the setup page
+    if saved.get("url"):
+        return AdGuardSource(saved["url"], saved.get("user", ""), saved.get("password", ""))
     return DemoSource()
 
 
@@ -66,7 +74,7 @@ def main():
     os.makedirs(folder, exist_ok=True)
     store = Store(db)
     net.set_recorder(store.add_own_call)
-    source = pick_source()
+    source = pick_source(store)
     if env("WL_ADGUARD_LOG"):
         keep = [c.strip() for c in env("WL_ADGUARD_LOG_CLIENTS").split(",") if c.strip()]
         source = Sources([source, AdGuardLogSource(env("WL_ADGUARD_LOG"), keep)])
@@ -86,25 +94,34 @@ def main():
     scanning = 0
     if env("WL_SCAN_TARGETS"):
         scanning = scan.start(store, env("WL_SCAN_TARGETS"))
+    holder = SourceHolder(source)
+    saved = json.loads(store.get_meta("adguard_config", "{}") or "{}")
     status = {"version": __version__, "source": source.kind, "keep_days": keep_days, "poll_seconds": every,
-              "offline": offline, "auth": auth.enabled, "scan_hosts": scanning, "last_poll": None, "last_error": None}
+              "offline": offline, "auth": auth.enabled, "scan_hosts": scanning, "last_poll": None, "last_error": None,
+              # The setup page may connect AdGuard only when no environment setting chose the source.
+              "configurable": not configured_by_env(),
+              "adguard_url": env("WL_ADGUARD_URL") or saved.get("url", "")}
+    wake = threading.Event()
 
     def poll_forever():
         while True:
             try:
-                added = source.poll(store)
+                status["source"] = holder.kind
+                added = holder.poll(store)
                 store.prune(keep_days)
                 status.update(last_poll=datetime.now(timezone.utc).isoformat(timespec="seconds"),
                               last_error=None, last_added=added)
             except Exception as exc:
                 status["last_error"] = f"{type(exc).__name__}: {exc}"
                 traceback.print_exc()
-            time.sleep(every)
+            wake.wait(every)  # or sooner, when the setup page connects a new source
+            wake.clear()
 
     threading.Thread(target=poll_forever, daemon=True).start()
     host, port = env("WL_HOST", "0.0.0.0"), int(env("WL_PORT", "8080"))
-    httpd = serve(App(store, status, auth, owners, DemoSource.SITE_NAMES if source.kind.startswith("demo") else None, token),
-                  host, port)
+    app = App(store, status, auth, owners, DemoSource.SITE_NAMES if source.kind.startswith("demo") else None, token)
+    app.holder, app.wake = holder, wake
+    httpd = serve(app, host, port)
     login = "off" if not auth.enabled else ("open the page to create it" if auth.needs_setup() else "set")
     print(f"What Leaves Home {__version__}: source {source.kind}, login {login}, "
           f"listening on http://{host}:{port}", flush=True)
