@@ -485,6 +485,11 @@ class Naming(unittest.TestCase):
         self.assertFalse(is_local_name("lgtvsdp.com"))
         self.assertEqual(analysis.company_for_site(site("us.lgtvsdp.com")), "LG")
         self.assertEqual(analysis.company_for_site(site("occ-0-1.nflximg.com")), "Netflix")
+        self.assertEqual(analysis.company_for_site(site("tvx.adgrx.com")), "Samsung Ads (AdGear)")
+        from whatleaves.enrich import is_cert_check, is_tracking
+        self.assertTrue(is_tracking("adgrx.com"))
+        self.assertTrue(is_cert_check("ocsp.digicert.com") and is_cert_check("r3.o.lencr.org"))
+        self.assertFalse(is_cert_check("status.example.com") or is_cert_check("api.samsung.com"))
 
     def test_outside_dns_is_its_own_finding(self):
         conn = lambda dport, names=(): {"local": False, "names": list(names), "dport": dport, "proto": "udp", "dst": "8.8.8.8"}

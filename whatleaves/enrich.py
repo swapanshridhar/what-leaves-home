@@ -52,7 +52,12 @@ SITE_COMPANIES = {
     "nflxsearch.net": "Netflix", "primevideo.com": "Amazon", "media-amazon.com": "Amazon", "amazonalexa.com": "Amazon",
     "aiv-cdn.net": "Amazon", "aiv-delivery.net": "Amazon", "disneyplus.com": "Disney+", "bamgrid.com": "Disney+",
     "hulu.com": "Hulu", "hulustream.com": "Hulu", "max.com": "Max", "hbomax.com": "Max", "plex.tv": "Plex",
-    "samsungosp.com": "Samsung", "samsungotn.net": "Samsung", "samsungrm.net": "Samsung",
+    "samsungosp.com": "Samsung", "samsungcloud.tv": "Samsung", "samsungcloudcdn.com": "Samsung",
+    "adgrx.com": "Samsung Ads (AdGear)", "wurl.com": "Wurl (free TV channels)", "transmit.live": "Wurl (free TV channels)",
+    "digicert.com": "DigiCert (certificate checks)", "lencr.org": "Let's Encrypt (certificate checks)",
+    "sectigo.com": "Sectigo (certificate checks)", "globalsign.com": "GlobalSign (certificate checks)",
+    "usertrust.com": "Sectigo (certificate checks)", "pki.goog": "Google (certificate checks)",
+    "amazontrust.com": "Amazon (certificate checks)", "samsungotn.net": "Samsung", "samsungrm.net": "Samsung",
     "samsungcloud.com": "Samsung", "samsungelectronics.com": "Samsung", "samsungiotcloud.com": "Samsung",
     "smartthings.com": "Samsung SmartThings", "aaplimg.com": "Apple", "cdn-apple.com": "Apple",
     "apple-cloudkit.com": "Apple", "apple.news": "Apple",
@@ -87,7 +92,7 @@ SITE_COMPANIES = {
 # Known ad, tracking and viewing-data sites, flagged even with no DNS filter.
 TRACKING_SITES = {
     "doubleclick.net", "googlesyndication.com", "app-measurement.com", "google-analytics.com",
-    "googletagmanager.com", "amazon-adsystem.com", "samsungads.com", "samsungacr.com", "lgsmartad.com",
+    "googletagmanager.com", "amazon-adsystem.com", "samsungads.com", "samsungacr.com", "lgsmartad.com", "adgrx.com",
     "alphonso.tv", "samba.tv", "scorecardresearch.com", "branch.io", "adjust.com", "appsflyer.com",
     "facebook.net", "analytics-vendor.example", "viewing-data.example",
 }
@@ -129,6 +134,17 @@ def company_for_site(s, extra=None):
 
 def is_tracking(s):
     return s in TRACKING_SITES
+
+
+# Certificate checks (OCSP, CRL): a device asking whether a certificate is still valid. Routine,
+# and says nothing about what the device does, so it doesn't count as another company.
+CERT_SITES = {"digicert.com", "lencr.org", "sectigo.com", "globalsign.com", "usertrust.com", "pki.goog",
+              "amazontrust.com", "entrust.net", "comodoca.com", "verisign.com", "identrust.com"}
+
+
+def is_cert_check(name):
+    n = name.rstrip(".").lower()
+    return n.startswith(("ocsp.", "ocsp2.", "crl.", "crl3.", "crl4.")) or site(n) in CERT_SITES
 
 
 def is_time_service(name):

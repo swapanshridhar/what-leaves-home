@@ -9,7 +9,7 @@ take points off for each reason; the reasons are shown next to the grade.
 import re
 from datetime import datetime, timedelta, timezone
 
-from .enrich import company_for_site, flag, is_local_name, is_time_service, is_tracking, site
+from .enrich import company_for_site, flag, is_cert_check, is_local_name, is_time_service, is_tracking, site
 from .store import is_private
 
 # A name from a device's lookups, safe to paste into a block list: letters, digits,
@@ -181,6 +181,7 @@ def companies_for(raw, owners, site_names=None):
         # A time service only if every name of this company is one (time.vendor.com alone doesn't make
         # the vendor a time service).
         e["time"] = bool(e["domains"]) and all(is_time_service(n) for n in e["domains"])
+        e["cert"] = bool(e["domains"]) and all(is_cert_check(n) for n in e["domains"])
         e["domains"] = [{"name": k, "count": v} for k, v in sorted(e["domains"].items(), key=lambda kv: -kv[1])]
         e["hosting"] = sorted(e["hosting"])
         e["countries"] = [{"code": c, "flag": flag(c)} for c in sorted(e["countries"])]
@@ -198,7 +199,7 @@ def assess(raw, comps, server=False):
              and all(site(d["name"]) in blocked_only for d in c["domains"])]
     tracking = [c for c in comps if c["tracking"] and c not in tried]
     # Unexplained destinations are counted once, below, not as extra companies.
-    makers = [c for c in comps if not c["tracking"] and not c["time"] and not c["unexplained"]]
+    makers = [c for c in comps if not c["tracking"] and not c["time"] and not c["cert"] and not c["unexplained"]]
     # A device maker's servers often run on a cloud platform (iRobot on AWS). The maker is the
     # first company that isn't a platform; platforms it also reaches aren't counted as others.
     own = [c for c in makers if c["company"] not in CLOUD_PLATFORMS]
