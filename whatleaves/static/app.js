@@ -69,7 +69,22 @@ const ICON = {
   service: I('<rect x="3" y="4" width="18" height="6" rx="2"/><rect x="3" y="14" width="18" height="6" rx="2"/><path d="M7 7h.01M7 17h.01"/>'),
   copy: I('<rect x="9" y="9" width="12" height="12" rx="2"/><path d="M5 15V5a2 2 0 0 1 2-2h10"/>'),
 };
-const PALETTE = ["#14b8a6", "#6366f1", "#f59e0b", "#ec4899", "#0ea5e9", "#84cc16", "#a855f7", "#f97316", "#64748b"];
+// Data colours for the "where your data goes" bar; red stays reserved for tracking.
+const PALETTE = ["#4c6ef5", "#15aabf", "#f59f00", "#ae3ec9", "#82c91e", "#fd7e14", "#0ca678", "#e64980", "#868e96"];
+
+/* ---------- theme: Auto (follows the system), Light or Dark, remembered in this browser */
+const THEMES = ["auto", "light", "dark"];
+function getTheme() { try { return localStorage.getItem("wl-theme") || "auto"; } catch (e) { return "auto"; } }
+function applyTheme(t) {
+  if (t === "auto") document.documentElement.removeAttribute("data-theme");
+  else document.documentElement.setAttribute("data-theme", t);
+  const b = document.getElementById("theme");
+  if (b) { b.innerHTML = { auto: ICON_AUTO, light: ICON_SUN, dark: ICON_MOON }[t]; b.title = `Theme: ${t} (click to change)`; b.setAttribute("aria-label", b.title); }
+}
+const ICON_SUN = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.9 4.9l1.4 1.4M17.7 17.7l1.4 1.4M2 12h2M20 12h2M4.9 19.1l1.4-1.4M17.7 6.3l1.4-1.4"/></svg>';
+const ICON_MOON = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12.8A9 9 0 1 1 11.2 3a7 7 0 0 0 9.8 9.8z"/></svg>';
+const ICON_AUTO = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><circle cx="12" cy="12" r="9"/><path d="M12 3a9 9 0 0 1 0 18z" fill="currentColor"/></svg>';
+applyTheme(getTheme());
 
 /* ---------- small pieces */
 const grade = (d, cls = "") => `<span class="grade ${d.verdict} ${cls}" title="${esc(d.label)} (score ${d.score})">${esc(d.grade)}</span>`;
@@ -375,13 +390,30 @@ function wireDevice() {
 
 /* ---------- companies */
 function renderCompanies(o) {
-  const rows = o.companies.map((c, i) => `<div class="card comp">
+  const named = o.companies.filter((c) => !c.unexplained);
+  const unnamed = o.companies.filter((c) => c.unexplained);
+  const card = (c) => `<div class="card comp">
       <div class="top"><span class="cn">${c.flags.join("")} ${esc(c.company)}</span>${c.tracking ? '<span class="chip bad">ads or tracking</span>' : ""}
       <span class="bytes">${c.bytes_out ? "↑ " + bytes(c.bytes_out) : plural(c.lookups, "lookup")}</span></div>
-      <div class="meta">Used by ${plural(c.devices.length, "device")}</div>
-      <div class="chips">${c.devices.map((n) => `<span class="chip">${esc(n)}</span>`).join("")}</div></div>`).join("");
-  return `<section><h1>Companies</h1><p class="lede">Everyone your devices talk to, across the whole home. Red means ads or tracking.</p>
-    <div class="grid" style="margin-top:22px">${rows || '<div class="card empty">Nothing yet.</div>'}</div></section>`;
+      <div class="meta">Used by ${plural(c.devices.length, "device or service", "devices and services")}</div>
+      <div class="chips">${c.devices.map((n) => `<span class="chip">${esc(n)}</span>`).join("")}</div></div>`;
+  // Unidentified destinations, grouped by whose network they're on.
+  const byOwner = {};
+  unnamed.forEach((c) => (byOwner[c.owner || "Network unknown"] = byOwner[c.owner || "Network unknown"] || []).push(c));
+  const owners = Object.entries(byOwner).map(([owner, list]) => ({ owner, list,
+    bytes: list.reduce((a, c) => a + c.bytes_out, 0), addresses: list.reduce((a, c) => a + c.addresses, 0),
+    devices: [...new Set(list.flatMap((c) => c.devices))], flags: [...new Set(list.flatMap((c) => c.flags))] }))
+    .sort((a, b) => b.bytes - a.bytes || b.addresses - a.addresses);
+  const ownerRow = (g) => `<details class="card owner"><summary>
+      <span class="cn">${g.flags.join("")} ${esc(g.owner)}</span>
+      <span class="muted">${plural(g.addresses, "address", "addresses")} · ${plural(g.devices.length, "device or service", "devices and services")}</span>
+      <span class="bytes">${g.bytes ? "↑ " + bytes(g.bytes) : ""}</span></summary>
+      <div class="pad" style="padding-top:0">${g.list.map((c) => `<div class="urow"><span>${esc(c.company.replace(" on " + g.owner, ""))}</span><span class="muted">${esc(c.devices.join(", "))}</span><span class="num">${c.bytes_out ? bytes(c.bytes_out) : ""}</span></div>`).join("")}</div></details>`;
+  return `<section><h1>Companies</h1><p class="lede">Everyone your devices and services talk to, across the whole home. Red means ads or tracking.</p>
+    <div class="grid" style="margin-top:22px">${named.map(card).join("") || '<div class="card empty">Nothing named yet.</div>'}</div>
+    ${owners.length ? `<h2>Unidentified destinations <small>addresses nothing looked up, grouped by whose network they're on</small></h2>
+      <p class="muted" style="margin-top:-6px">These were reached without a DNS lookup we saw: fixed addresses, peers, relays, or a lookup older than the data kept. The network owner says who hosts it, not who runs it; the label says what kind of traffic it was.</p>
+      <div class="owners">${owners.map(ownerRow).join("")}</div>` : ""}</section>`;
 }
 
 /* ---------- this app */
@@ -510,5 +542,10 @@ async function boot() {
 }
 
 window.addEventListener("hashchange", () => { window.scrollTo(0, 0); route(); });
+document.getElementById("theme")?.addEventListener("click", () => {
+  const next = THEMES[(THEMES.indexOf(getTheme()) + 1) % THEMES.length];
+  try { localStorage.setItem("wl-theme", next); } catch (e) { /* private window: just this visit */ }
+  applyTheme(next);
+});
 setInterval(async () => { await refreshStatus(); if (!location.hash.includes("settings") && !document.querySelector(".namefield")) { overviewCache = null; route(); } }, 120000);
 boot();

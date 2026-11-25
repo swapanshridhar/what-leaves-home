@@ -2,7 +2,7 @@
   <!-- Provisional mark: a house with data leaving through the roof. -->
   <defs>
     <linearGradient id="g" x1="0" y1="0" x2="1" y2="1">
-      <stop offset="0" stop-color="#14b8a6"/><stop offset="1" stop-color="#0f766e"/>
+      <stop offset="0" stop-color="#6b84ff"/><stop offset="1" stop-color="#3d5afe"/>
     </linearGradient>
   </defs>
   <rect width="64" height="64" rx="16" fill="url(#g)"/>

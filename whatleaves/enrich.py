@@ -57,6 +57,18 @@ SITE_COMPANIES = {
     "alphonso.tv": "Alphonso (TV viewing data)", "samba.tv": "Samba TV (viewing data)",
     "scorecardresearch.com": "Comscore", "branch.io": "Branch", "adjust.com": "Adjust", "appsflyer.com": "AppsFlyer",
     "crashlytics.com": "Google (Crashlytics)", "sentry.io": "Sentry",
+    # Common on home servers.
+    "docker.io": "Docker Hub", "docker.com": "Docker Hub", "ghcr.io": "GitHub (Microsoft)",
+    "github.com": "GitHub (Microsoft)", "githubusercontent.com": "GitHub (Microsoft)", "quay.io": "Red Hat Quay",
+    "lscr.io": "LinuxServer.io", "themoviedb.org": "TMDB (film and TV data)", "tmdb.org": "TMDB (film and TV data)",
+    "thetvdb.com": "TheTVDB", "musicbrainz.org": "MusicBrainz", "tailscale.com": "Tailscale",
+    "tailscale.io": "Tailscale", "hc-ping.com": "Healthchecks.io", "healthchecks.io": "Healthchecks.io",
+    "duckdns.org": "Duck DNS", "icanhazip.com": "icanhazip (your public address)", "ipify.org": "ipify (your public address)",
+    "debian.org": "Debian", "ubuntu.com": "Canonical (Ubuntu)", "pypi.org": "Python Package Index",
+    "pythonhosted.org": "Python Package Index", "npmjs.org": "npm", "home-assistant.io": "Home Assistant",
+    "nabucasa.com": "Home Assistant Cloud", "jellyfin.org": "Jellyfin", "plex.tv": "Plex", "ollama.com": "Ollama",
+    "letsencrypt.org": "Let's Encrypt", "quad9.net": "Quad9 (DNS)", "cloudflare-dns.com": "Cloudflare (DNS)",
+    "openai.com": "OpenAI", "anthropic.com": "Anthropic", "proxmox.com": "Proxmox",
 }
 
 # Known ad, tracking and viewing-data sites, flagged even with no DNS filter.

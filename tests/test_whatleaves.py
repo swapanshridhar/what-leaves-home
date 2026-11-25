@@ -78,8 +78,8 @@ class Analysis(unittest.TestCase):
         self.assertTrue(any("unencrypted" in r["text"] for r in by["Living room TV"]["reasons"]))
         # An address with no lookup is named for its host, and isn't also counted as another company.
         cam = analysis.device_view(store, owners, by["Doorbell camera"]["client"], DemoSource.SITE_NAMES)
-        self.assertIn("Unknown service on Unknown Hosting Ltd", [c["company"] for c in cam["companies"]])
-        self.assertFalse(any("Unknown service" in r["text"] for r in cam["reasons"] if "besides" in r["text"]))
+        self.assertIn("Device relay on Unknown Hosting Ltd", [c["company"] for c in cam["companies"]])
+        self.assertFalse(any("Device relay" in r["text"] for r in cam["reasons"] if "besides" in r["text"]))
 
     def test_actions_and_home_block_list(self):
         store, owners = demo_store()

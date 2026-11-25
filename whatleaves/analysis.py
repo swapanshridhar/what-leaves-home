@@ -86,9 +86,39 @@ def _span_days(first, last):
     return max((l - f).total_seconds() / 86400, 1 / 24)
 
 
+# What a connection is for, when nothing named it: from its protocol and port.
+PURPOSES = {
+    ("tcp", 443): "Secure web (HTTPS)", ("udp", 443): "Secure web (QUIC)", ("tcp", 80): "Plain web (HTTP)",
+    ("udp", 123): "Time (NTP)", ("udp", 3478): "Connection setup (STUN)", ("udp", 19302): "Connection setup (STUN)",
+    ("udp", 41641): "Peer-to-peer (Tailscale)", ("udp", 51820): "VPN (WireGuard)", ("udp", 1194): "VPN (OpenVPN)",
+    ("tcp", 8883): "Encrypted messaging (MQTT)", ("tcp", 1883): "Messaging (MQTT)", ("tcp", 853): "Encrypted DNS",
+    ("tcp", 53): "DNS", ("udp", 53): "DNS", ("tcp", 22): "SSH", ("tcp", 5228): "Google push notifications",
+    ("tcp", 5223): "Apple push notifications", ("udp", 10001): "Device relay", ("tcp", 9000): "Device relay",
+}
+
+
+def purpose(proto, port):
+    return PURPOSES.get((proto, port), f"Port {port}/{proto}")
+
+
+def unexplained_name(c, owner, svc):
+    """A meaningful name for a destination nothing looked up: what the service is known to do,
+    else what kind of traffic it is and whose network it's on."""
+    sname = f"{svc['name']} {svc.get('image', '')}".lower() if svc else ""
+    if "tailscale" in sname:
+        return "Tailscale: your other devices and relays"
+    if any(w in sname for w in ("gluetun", "openvpn", "wireguard", "wg-easy")):
+        return "Your VPN provider" if "gluetun" in sname or "openvpn" in sname else "VPN peers"
+    if any(w in sname for w in ("adguard", "pihole", "unbound")) and c["dport"] in (443, 853, 53):
+        return f"DNS upstream ({owner})" if owner else "DNS upstream"
+    what = purpose(c["proto"], c["dport"])
+    return f"{what} on {owner}" if owner else f"{what}, network unknown"
+
+
 def companies_for(raw, owners, site_names=None):
     """Group a device's lookups and connections by company."""
     comps = {}
+    svc = raw.get("service")
 
     def entry(name):
         return comps.setdefault(name, {"company": name, "domains": {}, "lookups": 0, "bytes_out": 0,
@@ -110,9 +140,10 @@ def companies_for(raw, owners, site_names=None):
             name = company_for_site(site(c["names"][0]), site_names)
         else:
             # No lookup: the owner of the address is only who hosts it, not who the service is.
-            name = f"Unknown service on {owner}" if owner else "Unknown owner"
+            name = unexplained_name(c, owner, svc)
         e = entry(name)
         e["unexplained"] = not c["names"]
+        e["owner"] = owner
         e["bytes_out"] += c["bytes_out"]
         e["bytes_in"] += c["bytes_in"]
         e["connections"] += c["connections"]
@@ -302,7 +333,10 @@ def overview(store, owners, site_names=None):
         detail = companies_for(store.device(d["client"]), owners, site_names)
         for c in detail:
             f = flows.setdefault(c["company"], {"company": c["company"], "bytes_out": 0, "lookups": 0,
-                                                "devices": [], "flags": set(), "tracking": False})
+                                                "devices": [], "flags": set(), "tracking": False,
+                                                "unexplained": c["unexplained"], "owner": c.get("owner", ""),
+                                                "addresses": 0})
+            f["addresses"] += len(c["addresses"])
             f["bytes_out"] += c["bytes_out"]
             f["lookups"] += c["lookups"]
             f["devices"].append(d["name"] or d["client"])

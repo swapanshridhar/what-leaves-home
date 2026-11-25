@@ -1,30 +1,44 @@
 /* What Leaves Home. No external fonts or assets: the page loads nothing from outside. */
+/* Palette: cool slate neutrals, a cobalt brand, and calm status colours (sage for fine,
+   amber for worth a look, coral-red for concern). Light by default; dark follows the system
+   unless the theme switch (data-theme on <html>) says otherwise. */
 :root {
-  --bg: #f4f6f5; --bg-2: #eaeeec; --panel: #ffffff; --panel-2: #f8faf9; --ink: #0f1a17; --ink-2: #3d4a46;
-  --muted: #6b7874; --line: #dfe5e2; --line-2: #ccd5d1;
-  --brand: #0f766e; --brand-2: #14b8a6; --brand-soft: #e3f4f1; --on-brand: #ffffff;
-  --good: #15803d; --good-soft: #e5f5ea; --good-ring: #22c55e;
-  --check: #b45309; --check-soft: #fdf2e1; --check-ring: #f59e0b;
-  --concern: #b91c1c; --concern-soft: #fde8e8; --concern-ring: #ef4444;
-  --shadow: 0 1px 2px rgba(15, 26, 23, .05), 0 6px 24px -12px rgba(15, 26, 23, .18);
-  --shadow-hover: 0 2px 4px rgba(15, 26, 23, .06), 0 14px 32px -14px rgba(15, 26, 23, .28);
+  --bg: #f5f6f9; --bg-2: #eceef4; --panel: #ffffff; --panel-2: #f8f9fc; --ink: #12162a; --ink-2: #3c4359;
+  --muted: #6c7389; --line: #e1e4ee; --line-2: #cfd4e2;
+  --brand: #3d5afe; --brand-2: #6b84ff; --brand-soft: #eaeeff; --on-brand: #ffffff;
+  --good: #2f7d5b; --good-soft: #e6f3ec; --good-ring: #4fae84;
+  --check: #a35a00; --check-soft: #fdf1df; --check-ring: #f0a020;
+  --concern: #c0392b; --concern-soft: #fdeaea; --concern-ring: #e5534b;
+  --shadow: 0 1px 2px rgba(18, 22, 42, .05), 0 6px 24px -12px rgba(18, 22, 42, .18);
+  --shadow-hover: 0 2px 4px rgba(18, 22, 42, .06), 0 14px 32px -14px rgba(18, 22, 42, .28);
   --radius: 16px; --radius-sm: 10px;
   --font: ui-sans-serif, -apple-system, BlinkMacSystemFont, "Segoe UI", "Inter", Roboto, "Helvetica Neue", Arial, sans-serif;
   --mono: ui-monospace, SFMono-Regular, "JetBrains Mono", Menlo, Consolas, monospace;
   color-scheme: light;
 }
 @media (prefers-color-scheme: dark) {
-  :root {
-    --bg: #0b100f; --bg-2: #111816; --panel: #131b19; --panel-2: #172120; --ink: #e8efec; --ink-2: #c2cdc9;
-    --muted: #8a9893; --line: #24302d; --line-2: #2f3d39;
-    --brand: #2dd4bf; --brand-2: #5eead4; --brand-soft: #0f2a27; --on-brand: #04221e;
-    --good: #4ade80; --good-soft: #0f2a1a; --good-ring: #22c55e;
-    --check: #fbbf24; --check-soft: #2d2210; --check-ring: #f59e0b;
-    --concern: #f87171; --concern-soft: #301515; --concern-ring: #ef4444;
+  :root:not([data-theme="light"]) {
+    --bg: #0c0e17; --bg-2: #141826; --panel: #151a29; --panel-2: #1a2032; --ink: #e9ebf5; --ink-2: #c3c8db;
+    --muted: #8c93ab; --line: #262c40; --line-2: #323a52;
+    --brand: #8c9eff; --brand-2: #6b84ff; --brand-soft: #1a2147; --on-brand: #0b1030;
+    --good: #7fd1a9; --good-soft: #13271f; --good-ring: #4fae84;
+    --check: #f5c46b; --check-soft: #2c2312; --check-ring: #f0a020;
+    --concern: #ff8a80; --concern-soft: #321717; --concern-ring: #e5534b;
     --shadow: 0 1px 2px rgba(0, 0, 0, .4), 0 8px 28px -14px rgba(0, 0, 0, .7);
     --shadow-hover: 0 2px 4px rgba(0, 0, 0, .5), 0 16px 36px -14px rgba(0, 0, 0, .8);
     color-scheme: dark;
   }
+}
+:root[data-theme="dark"] {
+  --bg: #0c0e17; --bg-2: #141826; --panel: #151a29; --panel-2: #1a2032; --ink: #e9ebf5; --ink-2: #c3c8db;
+  --muted: #8c93ab; --line: #262c40; --line-2: #323a52;
+  --brand: #8c9eff; --brand-2: #6b84ff; --brand-soft: #1a2147; --on-brand: #0b1030;
+  --good: #7fd1a9; --good-soft: #13271f; --good-ring: #4fae84;
+  --check: #f5c46b; --check-soft: #2c2312; --check-ring: #f0a020;
+  --concern: #ff8a80; --concern-soft: #321717; --concern-ring: #e5534b;
+  --shadow: 0 1px 2px rgba(0, 0, 0, .4), 0 8px 28px -14px rgba(0, 0, 0, .7);
+  --shadow-hover: 0 2px 4px rgba(0, 0, 0, .5), 0 16px 36px -14px rgba(0, 0, 0, .8);
+  color-scheme: dark;
 }
 * { box-sizing: border-box; }
 html, body { margin: 0; }
@@ -284,3 +298,13 @@ h2 svg { vertical-align: -3px; color: var(--muted); }
 .action p { margin: 10px 0 4px; color: var(--ink-2); font-size: 14px; }
 .btn[disabled] { opacity: .45; cursor: not-allowed; }
 .btn.ghost { border: 1px solid var(--line-2); }
+
+/* ---------- companies: unidentified destinations */
+.owners { display: flex; flex-direction: column; gap: 10px; }
+.owner > summary { display: flex; align-items: center; gap: 14px; padding: 14px 18px; cursor: pointer; list-style: none; color: var(--ink); }
+.owner > summary::-webkit-details-marker { display: none; }
+.owner > summary .cn { font-weight: 650; }
+.owner > summary .bytes { margin-left: auto; font-variant-numeric: tabular-nums; color: var(--ink-2); font-size: 13px; }
+.owner[open] > summary { border-bottom: 1px solid var(--line); margin-bottom: 10px; }
+.urow { display: grid; grid-template-columns: minmax(0, 1.2fr) minmax(0, 2fr) 90px; gap: 12px; padding: 7px 0; border-bottom: 1px solid var(--line); font-size: 13.5px; }
+.urow:last-child { border-bottom: 0; }

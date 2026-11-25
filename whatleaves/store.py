@@ -66,6 +66,7 @@ def service_id(host, name):
 
 class Store:
     def __init__(self, path):
+        self._home_names, self._home_names_at = {}, 0.0
         self.lock = threading.Lock()
         self.db = sqlite3.connect(path, check_same_thread=False)
         self.db.executescript(SCHEMA)
@@ -191,6 +192,23 @@ class Store:
         return sorted(({"client": c, "name": names.get(c, "")} for c in clients),
                       key=lambda d: (d["name"].lower() or "~", d["client"]))
 
+    def home_names(self, max_age=60):
+        """Address -> names, from every lookup anyone in the home made (cached for a minute).
+        Names a connection whose own device's lookup is older than the data kept, or went
+        through another resolver."""
+        import time as _t
+        if _t.time() - self._home_names_at > max_age:
+            idx = {}
+            for qname, answers in self.q("SELECT name, answers FROM lookups WHERE answers != '[]' GROUP BY name, answers"):
+                try:
+                    for a in json.loads(answers):
+                        if a[:1].isdigit() or ":" in a:
+                            idx.setdefault(a, set()).add(qname)
+                except ValueError:
+                    pass
+            self._home_names, self._home_names_at = idx, _t.time()
+        return self._home_names
+
     def device(self, client):
         """Raw material for one device: lookups by name, connections by destination."""
         name = (self.q("SELECT name FROM names WHERE client=?", (client,)) or [("",)])[0][0]
@@ -227,6 +245,12 @@ class Store:
             c["bytes_in"] += ib
             c["first"], c["last"] = min(c["first"], f), max(c["last"], l)
             first, last = min(first or f, f), max(last or l, l)
+        home = None
+        for c in conns.values():
+            if not c["names"] and not c["local"]:
+                home = home if home is not None else self.home_names()
+                if c["dst"] in home:
+                    c["names"], c["named_by_home"] = sorted(home[c["dst"]])[:5], True
         if svc:
             # Keep only the host's lookups that explain this service's connections.
             used = {n for c in conns.values() for n in c["names"]}
