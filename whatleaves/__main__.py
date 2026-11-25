@@ -7,6 +7,9 @@
   WL_DEMO=1             show made-up devices (the default when nothing is set)
   WL_CLIENTS            only these client addresses, comma-separated
   WL_NAMES              friendly names: 192.168.1.20=TV,192.168.1.21=Speaker
+  WL_USER, WL_PASSWORD  set the login in advance (otherwise the first visitor sets it)
+  WL_AUTH=off           no login, for setups behind their own sign-in
+  WL_OFFLINE=1          never contact the internet (no ownership list)
   WL_KEEP_DAYS          how long to keep data (default 30)
   WL_POLL_SECONDS       how often to read the source (default 300)
   WL_DB                 database file (default ./data/whatleaves.db)
@@ -20,8 +23,10 @@ import time
 import traceback
 from datetime import datetime, timezone
 
-from . import __version__
-from .server import serve
+from . import __version__, net
+from .auth import Auth
+from .enrich import Owners
+from .server import App, serve
 from .sources import AdGuardSource, DemoSource, FilesSource
 from .store import Store
 
@@ -51,14 +56,22 @@ def parse_names(text):
 
 def main():
     db = env("WL_DB", os.path.join("data", "whatleaves.db"))
-    os.makedirs(os.path.dirname(db) or ".", exist_ok=True)
+    folder = os.path.dirname(db) or "."
+    os.makedirs(folder, exist_ok=True)
     store = Store(db)
+    net.set_recorder(store.add_own_call)
     source = pick_source()
     keep_days = int(env("WL_KEEP_DAYS", "30"))
     every = int(env("WL_POLL_SECONDS", "300"))
+    offline = env("WL_OFFLINE") == "1"
     store.set_names(parse_names(env("WL_NAMES")))
-    status = {"version": __version__, "source": source.kind, "keep_days": keep_days,
-              "poll_seconds": every, "last_poll": None, "last_error": None}
+    owners = Owners(folder, enabled=not offline,
+                    extra_ranges=DemoSource.OWNER_RANGES if source.kind == "demo" else None)
+    owners.start()
+    auth = Auth(store, enabled=env("WL_AUTH", "on").lower() not in ("off", "0", "false", "no"),
+                preset_user=env("WL_USER"), preset_password=env("WL_PASSWORD"))
+    status = {"version": __version__, "source": source.kind, "keep_days": keep_days, "poll_seconds": every,
+              "offline": offline, "auth": auth.enabled, "last_poll": None, "last_error": None}
 
     def poll_forever():
         while True:
@@ -74,8 +87,11 @@ def main():
 
     threading.Thread(target=poll_forever, daemon=True).start()
     host, port = env("WL_HOST", "0.0.0.0"), int(env("WL_PORT", "8080"))
-    httpd = serve(store, status, host, port)
-    print(f"What Leaves Home {__version__}: source {source.kind}, listening on http://{host}:{port}", flush=True)
+    httpd = serve(App(store, status, auth, owners, DemoSource.SITE_NAMES if source.kind == "demo" else None),
+                  host, port)
+    login = "off" if not auth.enabled else ("open the page to create it" if auth.needs_setup() else "set")
+    print(f"What Leaves Home {__version__}: source {source.kind}, login {login}, "
+          f"listening on http://{host}:{port}", flush=True)
     try:
         httpd.serve_forever()
     except KeyboardInterrupt:
