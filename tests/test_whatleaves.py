@@ -470,6 +470,24 @@ class Web(unittest.TestCase):
         self.assertEqual(self.store.get_meta("ingest_token"), r["token"])
 
 
+class Naming(unittest.TestCase):
+    def test_local_names_are_not_companies(self):
+        from whatleaves.enrich import is_local_name
+        for local in ("wpad.lan", "printer.local", "nas", "router.home.arpa", "1.8.168.192.in-addr.arpa"):
+            self.assertTrue(is_local_name(local), local)
+        self.assertFalse(is_local_name("lgtvsdp.com"))
+        self.assertEqual(analysis.company_for_site(site("us.lgtvsdp.com")), "LG")
+        self.assertEqual(analysis.company_for_site(site("occ-0-1.nflximg.com")), "Netflix")
+
+    def test_outside_dns_is_its_own_finding(self):
+        conn = lambda dport, names=(): {"local": False, "names": list(names), "dport": dport, "proto": "udp", "dst": "8.8.8.8"}
+        raw = {"connections": [conn(53), conn(443)], "lookups": []}
+        self.assertEqual(len(analysis.outside_dns(raw)), 1)
+        self.assertEqual(len(analysis.outside_dns({"connections": [conn(443, ["dns.google"])]})), 1)
+        dns_server = {"connections": [conn(53)], "service": {"name": "adguardhome", "image": "adguard/adguardhome"}}
+        self.assertEqual(analysis.outside_dns(dns_server), [])
+
+
 class Agent(unittest.TestCase):
     def test_installer_checksum_matches_the_agent(self):
         import hashlib, re

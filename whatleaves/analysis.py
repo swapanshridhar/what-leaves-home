@@ -9,7 +9,7 @@ take points off for each reason; the reasons are shown next to the grade.
 import re
 from datetime import datetime, timedelta, timezone
 
-from .enrich import company_for_site, flag, is_time_service, is_tracking, site
+from .enrich import company_for_site, flag, is_local_name, is_time_service, is_tracking, site
 from .store import is_private
 
 # A name from a device's lookups, safe to paste into a block list: letters, digits,
@@ -17,6 +17,20 @@ from .store import is_private
 RULE_SAFE = re.compile(r"^(?=.{1,253}$)[a-z0-9-]+(\.[a-z0-9-]+)+$")
 
 PLAINTEXT_PORTS = {80: "web (HTTP)", 21: "FTP", 23: "Telnet", 554: "video (RTSP)"}
+# Encrypted DNS services a device can use to skip the DNS your network hands out.
+DOH_NAMES = ("dns.google", "cloudflare-dns.com", "one.one.one.one", "dns.quad9.net", "doh.opendns.com",
+             "dns.nextdns.io", "doh.dns.apple.com", "mozilla.cloudflare-dns.com")
+
+
+def outside_dns(raw):
+    """Connections where a device asks a DNS server on the internet itself, going around the
+    DNS filter: plain DNS (53), DNS over TLS (853), or a known DNS-over-HTTPS service.
+    A DNS server's own upstream queries are its job, so those don't count."""
+    svc = raw.get("service") or {}
+    if any(w in f"{svc.get('name', '')} {svc.get('image', '')}".lower() for w in ("adguard", "pihole", "unbound", "dnsmasq", "coredns")):
+        return []
+    return [c for c in raw["connections"] if not c["local"] and
+            (c["dport"] in (53, 853) or any(n.rstrip(".").lower() in DOH_NAMES for n in c["names"]))]
 
 VERDICTS = [  # (lowest score, grade, verdict, label)
     (90, "A", "good", "Looks fine"),
@@ -132,6 +146,8 @@ def companies_for(raw, owners, site_names=None):
                                        "unexplained": False})
 
     for l in raw["lookups"]:
+        if is_local_name(l["name"]):
+            continue  # wpad.lan, printer.local: questions about the home network, not the internet
         s = l["site"]
         e = entry(company_for_site(s, site_names))
         e["domains"][l["name"]] = e["domains"].get(l["name"], 0) + l["count"]
@@ -182,7 +198,8 @@ def assess(raw, comps, server=False):
     makers = [c for c in comps if not c["tracking"] and not c["time"] and not c["unexplained"]]
     maker = makers[0]["company"] if makers else ""
     others = [c for c in makers[1:]]
-    unexplained = [c for c in raw["connections"] if not c["local"] and not c["names"]]
+    bypass = outside_dns(raw)
+    unexplained = [c for c in raw["connections"] if not c["local"] and not c["names"] and c not in bypass]
     plaintext = sorted({c["dport"] for c in raw["connections"]
                         if not c["local"] and c["proto"] == "tcp" and c["dport"] in PLAINTEXT_PORTS})
     remote = [c for c in raw["connections"] if not c["local"]]
@@ -208,6 +225,11 @@ def assess(raw, comps, server=False):
         reasons.append({"level": "warn", "text": f"Talks to {len(others)} other "
                         f"compan{'y' if len(others) == 1 else 'ies'} besides {maker or 'its maker'}: "
                         + ", ".join(c["company"] for c in others[:4])})
+    if bypass:
+        score -= 15
+        where = sorted({c["names"][0] if c["names"] else c["dst"] for c in bypass})
+        reasons.append({"level": "bad", "text": "Asks an outside DNS server directly (" + ", ".join(where[:3]) +
+                        "), so your DNS filter can't see or block those lookups"})
     if unexplained:
         score -= 10
         reasons.append({"level": "warn", "text": f"Connected to {len(unexplained)} "
@@ -264,6 +286,12 @@ def actions_for(raw, comps, a):
                      "text": "It sent unencrypted traffic to the internet, which anyone along the way can read. "
                              "That's often an old update check. Update its firmware; if it keeps happening, keep "
                              "it on a guest or IoT network.", "rules": []})
+    if outside_dns(raw):
+        acts.append({"level": "bad", "title": "Make it use your DNS filter",
+                     "text": "It has its own DNS server built in, so some of its lookups skip AdGuard or Pi-hole and "
+                             "never show up here. Many TVs and streaming sticks do this. On your router, block "
+                             "outgoing DNS (ports 53 and 853) for this device: it then falls back to your filter. "
+                             "If your router can't, AdGuard Home can't fix it alone.", "rules": []})
     if a["per_day_out"] > 1e8:
         acts.append({"level": "warn", "title": "Check its cloud settings",
                      "text": f"It uploads about {human_bytes(a['per_day_out'])} a day. Cameras and vacuums do this "

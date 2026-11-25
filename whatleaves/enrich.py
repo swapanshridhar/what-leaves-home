@@ -33,6 +33,7 @@ ASN_NAMES = {
 # Who runs a site, for the sites appliances talk to most. Site = registrable domain.
 SITE_COMPANIES = {
     "lgthinq.com": "LG", "lge.com": "LG", "lgtvcommon.com": "LG", "lgsmartad.com": "LG Ads",
+    "lgtvsdp.com": "LG", "lgappstv.com": "LG", "lgtviot.com": "LG", "lgeapi.com": "LG", "lgthinq.net": "LG",
     "vesync.com": "VeSync (Levoit)", "dreo-cloud.com": "Dreo", "dreo.com": "Dreo",
     "windows.com": "Microsoft", "microsoft.com": "Microsoft", "msftncsi.com": "Microsoft",
     "msftconnecttest.com": "Microsoft", "live.com": "Microsoft", "azure.com": "Microsoft",
@@ -46,6 +47,17 @@ SITE_COMPANIES = {
     "samsung.com": "Samsung", "samsungcloudsolution.com": "Samsung", "samsungcloudsolution.net": "Samsung",
     "samsungads.com": "Samsung Ads", "samsungacr.com": "Samsung ACR", "samsungqbe.com": "Samsung",
     "roku.com": "Roku", "netflix.com": "Netflix", "nflxvideo.net": "Netflix", "nflxso.net": "Netflix",
+    "nflximg.com": "Netflix", "nflximg.net": "Netflix", "nflxext.com": "Netflix", "netflix.net": "Netflix",
+    "nflxsearch.net": "Netflix", "primevideo.com": "Amazon", "media-amazon.com": "Amazon", "amazonalexa.com": "Amazon",
+    "aiv-cdn.net": "Amazon", "aiv-delivery.net": "Amazon", "disneyplus.com": "Disney+", "bamgrid.com": "Disney+",
+    "hulu.com": "Hulu", "hulustream.com": "Hulu", "max.com": "Max", "hbomax.com": "Max", "plex.tv": "Plex",
+    "samsungosp.com": "Samsung", "samsungotn.net": "Samsung", "samsungrm.net": "Samsung",
+    "samsungcloud.com": "Samsung", "samsungelectronics.com": "Samsung", "samsungiotcloud.com": "Samsung",
+    "smartthings.com": "Samsung SmartThings", "aaplimg.com": "Apple", "cdn-apple.com": "Apple",
+    "apple-cloudkit.com": "Apple", "apple.news": "Apple",
+    "googleusercontent.com": "Google", "ggpht.com": "Google", "gvt1.com": "Google", "gvt2.com": "Google",
+    "googleadservices.com": "Google Ads", "dns.google": "Google DNS", "irobotapi.com": "iRobot",
+    "akamaized.net": "Akamai", "akamaiedge.net": "Akamai", "edgekey.net": "Akamai", "edgesuite.net": "Akamai",
     "tuya.com": "Tuya", "tuyaus.com": "Tuya", "tuyaeu.com": "Tuya", "reolink.com": "Reolink",
     "irobot.com": "iRobot", "sonos.com": "Sonos", "xiaomi.com": "Xiaomi", "mi.com": "Xiaomi",
     "xiaomi.net": "Xiaomi", "miui.com": "Xiaomi", "tplinkcloud.com": "TP-Link", "tp-link.com": "TP-Link",
@@ -86,6 +98,15 @@ TWO_LABEL_SUFFIXES = {
     "co.jp", "ne.jp", "or.jp", "co.kr", "com.br", "com.cn", "com.tw", "com.hk",
     "co.in", "net.in", "com.mx", "com.sg", "co.za", "com.tr",
 }
+
+
+# Names a home network keeps to itself: never a company on the internet.
+LOCAL_SUFFIXES = (".lan", ".local", ".home", ".home.arpa", ".internal", ".localdomain", ".localhost", ".arpa")
+
+
+def is_local_name(name):
+    n = name.rstrip(".").lower()
+    return "." not in n or n.endswith(LOCAL_SUFFIXES)
 
 
 def site(name):
