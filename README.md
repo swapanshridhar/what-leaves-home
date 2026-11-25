@@ -211,6 +211,10 @@ Standard library only. The page is `whatleaves/static/`; the grading is `whatlea
 - Better grades: device types, known trackers per device type, DNS that bypasses your filter
 - A ready-made image on GitHub's container registry (the workflow is in `.github/workflows/`)
 
+## How this was built
+
+I designed What Leaves Home and ran it on my own home network while building it. Most of the code was written with Claude, an AI coding assistant, working to my direction. Every change is covered by the tests in this repository. Before the first public release, a separate AI review focused on security, and its findings were fixed. Bug reports and questions are welcome either way.
+
 ## Licence
 
 Apache License 2.0. See [LICENSE](LICENSE) and [NOTICE](NOTICE).
