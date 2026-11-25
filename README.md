@@ -143,3 +143,7 @@ Standard library only. The page is `whatleaves/static/`; the grading is `whatlea
 - Better grades: device types, known trackers per device type, DNS that bypasses your filter
 - Pi-hole as a source
 - A ready-made image on GitHub's container registry (the workflow is in `.github/workflows/`)
+
+## Licence
+
+Apache License 2.0. See [LICENSE](LICENSE) and [NOTICE](NOTICE).

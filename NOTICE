@@ -1,0 +1,8 @@
+What Leaves Home
+Copyright 2026 Swapan Shridhar
+
+Licensed under the Apache License, Version 2.0 (see LICENSE).
+
+At runtime, unless WL_OFFLINE=1 is set, the app downloads the address-to-network
+table published by iptoasn.com under the Open Data Commons Public Domain
+Dedication and License (PDDL). That data is not included in this repository.
