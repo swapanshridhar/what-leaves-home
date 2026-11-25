@@ -143,8 +143,7 @@ class AdGuardLog(unittest.TestCase):
                 f.write(line("192.168.1.10", "update.server.example", "2026-11-24T11:00:00Z"))
             self.assertEqual(src.poll(store), 1)
             self.assertEqual(src.poll(store), 0)
-        with self.assertRaises(ValueError):
-            AdGuardLogSource("/x", [])
+        self.assertTrue(AdGuardLogSource("/nonexistent/querylog.json").waiting())
 
 
 class FakeAdGuard(BaseHTTPRequestHandler):
@@ -218,6 +217,20 @@ class Services(unittest.TestCase):
         for bad in ("8.8.8.0/24", "0.0.0.0/0", "10.0.0.0/8"):
             with self.assertRaises(ValueError):
                 scan.targets(bad)
+
+
+class Router(unittest.TestCase):
+    def test_spots_a_router_answering_for_everyone(self):
+        from datetime import datetime, timezone
+        store = Store(":memory:")
+        now = datetime.now(timezone.utc)
+        store.add_lookups([{"time": now.replace(microsecond=i).isoformat(), "client": "192.168.1.1" if i % 10 else "192.168.1.40",
+                            "name": f"n{i}.example.com"} for i in range(300)])
+        r = analysis.router_client(store)
+        self.assertEqual((r["client"], r["share"]), ("192.168.1.1", 0.9))
+        v = analysis.device_view(store, None, "192.168.1.1", router=r)
+        self.assertEqual((v["kind"], v["name"]), ("router", "Everything behind your router"))
+        self.assertIsNone(analysis.router_client(Store(":memory:")))
 
 
 class Connect(unittest.TestCase):

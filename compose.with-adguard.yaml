@@ -1,0 +1,50 @@
+# Everything in one: AdGuard Home (your DNS filter) and What Leaves Home, already connected.
+#
+#   docker compose -f compose.with-adguard.yaml up -d
+#
+# Then:
+#   1. open http://<this machine>:3000 and finish AdGuard Home's short setup
+#      (keep its web page on port 3000, and DNS on port 53)
+#   2. point your router's DNS at this machine (for Google Wifi / Nest Wifi: Google Home
+#      app → Wi-Fi → Settings → Advanced networking → DNS → Custom)
+#   3. open http://<this machine>:8080
+#
+# What Leaves Home reads AdGuard's query-log file directly, so it needs no AdGuard login.
+services:
+  adguard:
+    image: adguard/adguardhome:v0.107.79
+    container_name: adguardhome
+    restart: unless-stopped
+    # Host networking, so AdGuard sees each device's real address and answers DNS on port 53.
+    network_mode: host
+    volumes:
+      - adguard-work:/opt/adguardhome/work
+      - adguard-conf:/opt/adguardhome/conf
+
+  whatleaves:
+    build: .
+    image: whatleaves:local
+    container_name: whatleaves
+    restart: unless-stopped
+    depends_on: [adguard]
+    ports:
+      - "8080:8080"
+    env_file:
+      - path: .env
+        required: false
+    environment:
+      WL_ADGUARD_LOG: /adguard/data/querylog.json
+      WL_ADGUARD_UI_PORT: "3000"
+    # AdGuard keeps its log readable by root only, so this container runs as root, with a
+    # read-only root filesystem and no privilege escalation; it only reads that folder.
+    user: "0:0"
+    read_only: true
+    security_opt: ["no-new-privileges:true"]
+    volumes:
+      - adguard-work:/adguard:ro
+      - whatleaves-data:/data
+
+volumes:
+  adguard-work:
+  adguard-conf:
+  whatleaves-data:

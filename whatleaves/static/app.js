@@ -68,6 +68,7 @@ const ICON = {
   monitor: I('<path d="M3 12h4l3-8 4 16 3-8h4"/>'),
   service: I('<rect x="3" y="4" width="18" height="6" rx="2"/><rect x="3" y="14" width="18" height="6" rx="2"/><path d="M7 7h.01M7 17h.01"/>'),
   copy: I('<rect x="9" y="9" width="12" height="12" rx="2"/><path d="M5 15V5a2 2 0 0 1 2-2h10"/>'),
+  router: I('<rect x="3" y="13" width="18" height="7" rx="2"/><path d="M7 16.5h.01M11 16.5h.01M8 9a6 6 0 0 1 8 0M5.5 6.5a10 10 0 0 1 13 0"/>'),
 };
 // Data colours for the "where your data goes" bar; red stays reserved for tracking.
 const PALETTE = ["#4c6ef5", "#15aabf", "#f59f00", "#ae3ec9", "#82c91e", "#fd7e14", "#0ca678", "#e64980", "#868e96"];
@@ -138,6 +139,7 @@ async function route() {
     else if (view === "app") { setTab("app"); main.innerHTML = renderApp(await api("/api/app")); }
     else if (view === "settings") { setTab(""); main.innerHTML = renderSettings(); wireSettings(); }
     else if (view === "connect") { setTab(""); main.innerHTML = renderConnect(); wireConnect(); }
+    else if (view === "visible") { setTab(""); main.innerHTML = renderVisible(overviewCache || await loadOverview()); }
     else location.hash = "#/";
   } catch (e) {
     if (e.message !== "signed out") main.innerHTML = `<div class="card empty">Couldn't load this page: ${esc(e.message)}</div>`;
@@ -188,6 +190,10 @@ function renderOverview(o) {
     <h1>${esc(o.headline)}</h1>
     <p class="lede">What the devices and services in your home talk to on the internet, in plain words.</p>
     ${demo}
+    ${o.router ? `<a class="finding check" href="#/visible" style="margin-top:16px"><span class="ico">${ICON.router}</span><span>
+      <div class="k">Your devices are hidden behind your router</div>
+      <div class="t">${Math.round(o.router.share * 100)}% of lookups come from one address (${esc(o.router.client)}): your router asks on every device's behalf, so they can't be told apart.</div>
+      <span class="go">See each device separately: your options, step by step →</span></span></a>` : ""}
     <div class="stats">${stat("all", c.total - c.quiet, "With traffic")}${stat("good", c.good, "Look fine")}${stat("check", c.check, "Worth a look")}${stat("concern", c.concern, "Concern")}</div>
     ${finding}
     ${attention.length ? `<h2>Needs a look <small>worst first</small></h2><div class="grid">${attention.map(anyTile).join("")}</div>` : ""}
@@ -199,7 +205,7 @@ function renderOverview(o) {
   </section>`;
 }
 function adguardLink() {
-  const u = statusCache?.adguard_url;
+  const u = statusCache?.adguard_url || (statusCache?.adguard_ui_port ? `${location.protocol}//${location.hostname}:${statusCache.adguard_ui_port}` : "");
   return u ? `<p style="margin-bottom:0"><a href="${esc(u)}/#custom_rules" target="_blank" rel="noopener">Open AdGuard's custom rules →</a></p>` : "";
 }
 
@@ -354,6 +360,7 @@ function renderDevice(d) {
     <div class="dhead">${kind(d.kind)}
       <div><div class="dtitle"><h1 id="dname">${esc(d.name || d.client)}</h1><button class="edit" id="rename" aria-label="Rename" title="Rename">${ICON.pencil}</button></div>
       <div class="muted">${d.service ? `Runs on <b>${esc(d.service.host)}</b>${d.service.image ? " · <span class='mono'>" + esc(d.service.image) + "</span>" : ""}${d.service.ports.length ? " · ports " + esc(d.service.ports.join(", ")) : ""}` : esc(d.client)} · ${esc(d.summary)}</div></div>${ring(d)}</div>
+    ${d.router ? `<a class="finding check" href="#/visible" style="margin-top:18px"><span class="ico">${ICON.router}</span><span><div class="t">This is your router, asking on behalf of every device behind it.</div><span class="go">See each device separately →</span></span></a>` : ""}
     <div class="cols">
       <div class="card pad"><h2 style="margin-top:0">Why it got ${esc(d.grade)}</h2><ul class="reasons">${reasons || "<li>Not enough data yet.</li>"}</ul></div>
       <div class="card pad"><div class="kpis">
@@ -465,6 +472,45 @@ function wireSettings() {
     catch (err) { m.className = "msg err"; m.textContent = err.message; }
   });
   $("#logout")?.addEventListener("click", async () => { await api("/api/logout", {}); boot(); });
+}
+
+/* ---------- see each device separately */
+function renderVisible(o) {
+  const host = /^[0-9.]+$|^\[?[0-9a-f:]+\]?$/i.test(location.hostname) ? location.hostname : "";
+  const ip = host || "the address of the machine running AdGuard";
+  const r = o.router;
+  const step = (who, how) => `<tr><td><b>${who}</b></td><td>${how}</td></tr>`;
+  return `<section><h1>See each device separately</h1>
+    <p class="lede">The goal is one line per device: the TV, the speaker, each phone. That needs each device to ask AdGuard directly, instead of asking your router.</p>
+    ${r ? `<div class="finding check" style="margin-top:16px"><span class="ico">${ICON.router}</span><span><div class="t">Right now ${Math.round(r.share * 100)}% of lookups come from ${esc(r.client)}, your router, so devices are hidden behind it.</div>
+      <div>Below are the ways to fix that, best first. You can mix them: for example, the router for most things and a few devices set by hand.</div></span></div>` : ""}
+    <h2>1. Change the DNS your router hands out <small>best: every device at once</small></h2>
+    <div class="card pad">
+      <p style="margin-top:0">In your router's settings, look for <b>DHCP</b> or <b>LAN</b> settings and a <b>DNS server</b> field, and enter <span class="mono">${esc(ip)}</span>. Every device picks it up as it reconnects. Many standalone routers allow this (often under "DHCP server" or "LAN"); routers running OpenWrt, OPNsense, pfSense and UniFi always do.</p>
+      <p style="margin-bottom:0" class="muted"><b>Google Wifi, Nest Wifi and eero can't.</b> Their DNS setting only changes where the router itself forwards lookups, which is why everything shows as the router. With one of those, use 2 and 3, or 4.</p>
+    </div>
+    <h2>2. Set DNS on each device <small>no new hardware; phones, computers, most TVs</small></h2>
+    <div class="card pad scroll">
+      <p style="margin-top:0">Set the DNS server to <span class="mono">${esc(ip)}</span> on the devices you care about most. Each takes about a minute.</p>
+      <table><tbody>
+        ${step("iPhone, iPad", "Settings → Wi-Fi → (i) next to your network → Configure DNS → Manual → remove the existing servers, add the address.")}
+        ${step("Mac", "System Settings → Wi-Fi → Details on your network → DNS → replace the servers with the address.")}
+        ${step("Windows", "Settings → Network & internet → Wi-Fi (or Ethernet) → Hardware properties → DNS server assignment → Edit → Manual → IPv4 on → the address.")}
+        ${step("Android phone or tablet", "Settings → Wi-Fi → your network → Edit → Advanced → IP settings: Static, then DNS 1 = the address. (Android's \"Private DNS\" needs AdGuard with encryption set up, so it's harder.)")}
+        ${step("Apple TV", "Settings → Network → your network → Configure DNS → Manual → the address.")}
+        ${step("Google TV, Android TV", "Settings → Network & Internet → your network → IP settings: Static → DNS 1 = the address.")}
+        ${step("Samsung, LG and other smart TVs", "Network settings → IP or advanced settings → DNS: Manual (or Enter manually) → the address.")}
+        ${step("PlayStation, Xbox, Switch", "Network settings → set up connection → manual / advanced → DNS: Manual → primary = the address.")}
+        ${step("Roku, smart plugs, fans, appliances", "No DNS setting. Use 3 or 4 for these.")}
+      </tbody></table>
+      <p class="muted" style="margin-bottom:0">Also switch off IPv6 DNS from the router: either give the device the address for IPv6 too, or turn IPv6 off in the router's app (Google Home app → Wi-Fi → Settings → Advanced networking → IPv6). Otherwise some lookups still go through the router.</p>
+    </div>
+    <h2>3. A small helper router for appliances <small>for devices with no DNS setting</small></h2>
+    <div class="card pad"><p style="margin:0">A pocket travel router (about $30 to $120; some have AdGuard built in) plugged into your network gives a few appliances their own Wi-Fi. Set its DNS to <span class="mono">${esc(ip)}</span>, move the appliances onto it in their apps, and each shows up separately. Good for the devices near it; it doesn't replace your mesh.</p></div>
+    <h2>4. A router that hands out AdGuard <small>every device, permanently</small></h2>
+    <div class="card pad"><p style="margin:0">Use a router that lets you set the DNS it hands out (see 1), and keep good Wi-Fi coverage with access points that mesh in access-point mode. A mesh like Google Wifi can't be kept as the router here: in bridge mode it loses its extra points. This takes an evening and some hardware, and gives every device its own line.</p></div>
+    <p class="muted" style="margin-top:18px">Until then, the router's line shows the whole home as one: still useful for what the house as a whole talks to.</p>
+  </section>`;
 }
 
 /* ---------- connect AdGuard Home */

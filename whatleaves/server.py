@@ -105,7 +105,7 @@ def make_handler(app):
             if url.path == "/api/overview":
                 return self._json(analysis.overview(s, o, n))
             if url.path == "/api/device" and q.get("client"):
-                return self._json(analysis.device_view(s, o, q["client"][0], n))
+                return self._json(analysis.device_view(s, o, q["client"][0], n, router=analysis.router_client(s)))
             if url.path == "/api/agent":
                 return self._json({"token": app.ingest_token, "agents": agent_summary(s),
                                    "suggestions": analysis.suggest_hosts(s)})

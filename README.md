@@ -4,11 +4,11 @@ What Leaves Home shows what each device on your home network talks to on the int
 
 It runs on your own machine. Nothing is sent anywhere.
 
-Status: early (0.2). Grades are a first version: simple rules, always shown with their reasons.
+Status: early (0.5). Grades are a first version: simple rules, always shown with their reasons.
 
 ## Try it in two minutes
 
-You need Docker. On any machine on your network:
+You need Docker. On any always-on machine on your network (a Raspberry Pi, a NAS, an old PC):
 
 ```bash
 git clone <this repository's URL> what-leaves-home
@@ -16,53 +16,52 @@ cd what-leaves-home
 docker compose up -d
 ```
 
-Open `http://<that machine's address>:8080` in a browser. For example `http://192.168.1.10:8080`, or `http://localhost:8080` on the same machine.
+Open `http://<that machine's address>:8080`. The first visit asks you to create the login for the page (there is no default password). With nothing connected it shows made-up demo devices, so you can see what it does first.
 
-The first visit asks you to create the login for the page (there is no default password). With no other settings it shows made-up demo devices, so you can see what it does before connecting anything.
+## The goal: every device on its own line
 
-## See your own network
+What Leaves Home is at its best when each device (the TV, the speaker, each phone) shows up separately. That happens when each device asks your DNS filter, AdGuard Home, directly. How you get there depends on your router.
 
-What Leaves Home reads AdGuard Home's query log through its web API. The easiest way: on the page, click **Connect** (or Settings → Data source), enter AdGuard's address and login, press **Test**, then **Save**. The test also warns you if every lookup comes from one address (your router), and explains the fix.
+### Don't have AdGuard Home yet? Install both together
 
-Or set it in a file instead:
+```bash
+docker compose -f compose.with-adguard.yaml up -d
+```
 
-1. Copy the example settings:
+1. Open `http://<this machine>:3000` and finish AdGuard Home's short setup. Keep its web page on port 3000 and DNS on port 53.
+2. Point your network's DNS at this machine (next section).
+3. Open `http://<this machine>:8080`.
 
-   ```bash
-   cp .env.example .env
-   ```
+What Leaves Home reads AdGuard's log file directly, so there's no second login to enter. AdGuard saves its log in batches, so the first results can take a little while (it writes after about a thousand lookups).
 
-2. Edit `.env` and fill in three lines:
+If port 53 is already in use on a Debian or Ubuntu machine, the system's own DNS stub is holding it. AdGuard's documentation describes the fix ("Docker: port 53 is in use"): turn off `DNSStubListener` in systemd-resolved.
 
-   ```
-   WL_ADGUARD_URL=http://192.168.1.2:3000
-   WL_ADGUARD_USER=your-adguard-username
-   WL_ADGUARD_PASSWORD=your-adguard-password
-   ```
+### Already have AdGuard Home? Connect it
 
-   The URL is the address you open AdGuard Home's page at.
+On the page, click **Connect** (or Settings → Data source), enter AdGuard's address (the one you open its web page at, with the port) and its login, press **Test**, then **Save**. The test also warns you when nearly every lookup comes from one address, your router.
 
-3. Restart it:
+Or put it in a file: `cp .env.example .env`, fill in `WL_ADGUARD_URL`, `WL_ADGUARD_USER` and `WL_ADGUARD_PASSWORD`, and `docker compose up -d`.
 
-   ```bash
-   docker compose up -d
-   ```
+Some routers ship their own build of AdGuard Home that only accepts the router's admin session (GL.iNet is one). Read its log file instead: see [docs/collector.md](docs/collector.md).
 
-The page fills in within a few minutes, then updates every 5 minutes. AdGuard Home usually keeps its own log for a limited time, so What Leaves Home keeps its own copy (30 days by default).
+### Point your devices at AdGuard: best first
 
-### Every device shows up as my router
+1. **Change the DNS your router hands out.** In your router's DHCP or LAN settings, set the DNS server to the AdGuard machine's address. Every device picks it up as it reconnects, and each shows up separately. Many standalone routers allow this, and OpenWrt, OPNsense, pfSense and UniFi always do.
+2. **Set DNS on individual devices.** Phones, computers, most TVs and streaming boxes, and game consoles have a manual DNS setting. The app's **See each device separately** page gives the steps for each kind. Smart plugs, fans and appliances don't have one.
+3. **A small helper router** (a travel router, about $30 to $120) gives a few appliances their own Wi-Fi with AdGuard as DNS.
+4. **A router that hands out AdGuard**, for every device permanently.
 
-This is the most common snag. Many home routers, Google Nest Wifi and Eero among them, hand out themselves as the DNS server and forward lookups to AdGuard. AdGuard then sees every lookup as coming from the router, and so does What Leaves Home.
+### If you have Google Wifi, Nest Wifi or eero
 
-Ways around it, easiest first:
+These mesh systems always hand out *themselves* as the DNS server and forward lookups on. Setting a custom DNS server in their app (Google Home app → Wi-Fi → Settings → Advanced networking → DNS) only changes where the router forwards to. So AdGuard sees one client, the router, and What Leaves Home shows it as **"Everything behind your router"**: a whole-home view, but not device by device. The app spots this and opens the step-by-step guide.
 
-- If your router lets you set the DNS server it hands out (DHCP settings), set it to AdGuard Home's address.
-- Let AdGuard Home hand out addresses (Settings, DHCP settings) and turn off your router's DHCP, if the router allows that.
-- Put the devices you want to watch behind a second router whose DHCP hands out AdGuard, or that runs AdGuard itself. A travel router works for a trial.
+To see devices separately with one of these:
 
-### AdGuard Home login is refused
+- **No new hardware:** set DNS on the devices that matter most (option 2: phones, computers, TVs, consoles). Also give them the address for IPv6, or turn IPv6 off in the router's app, or some lookups still go through the router.
+- **For appliances:** a helper travel router (option 3) for the ones near it.
+- **For everything:** something else has to be the router (option 4). These meshes can't keep their extra points once they stop being the router: bridge mode works with a single unit only. So plan for access points that mesh in access-point mode, alongside the new router.
 
-Some routers ship their own build of AdGuard Home that only accepts the router's admin session, not a username and password (GL.iNet is one). In that case read its log files instead; see [docs/collector.md](docs/collector.md).
+The whole-home view is the fallback while you decide. It's still useful for what the house as a whole talks to.
 
 ## Without Docker
 

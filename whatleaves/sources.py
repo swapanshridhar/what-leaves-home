@@ -167,16 +167,19 @@ class SourceHolder:
 
 class AdGuardLogSource:
     """AdGuard Home's own query-log file (querylog.json, plus querylog.json.1 after a
-    rotation), read directly, keeping only the listed client addresses. Use it for
-    lookups the API can't give you, such as a home server's own lookups, without
-    storing anyone else's: other clients' lines are read past and dropped."""
+    rotation), read directly: no AdGuard login needed when both run on one machine (the
+    all-in-one compose). With a client list, only those addresses are kept and every
+    other line is read past and dropped, so a house log can serve a few servers without
+    storing anyone else's lookups. Without one, everything is kept."""
     kind = "adguard-log"
 
-    def __init__(self, path, clients):
+    def __init__(self, path, clients=None):
         self.path = path
-        self.clients = set(clients)
-        if not self.clients:
-            raise ValueError("WL_ADGUARD_LOG needs WL_ADGUARD_LOG_CLIENTS: which addresses to keep")
+        self.clients = set(clients or [])
+
+    def waiting(self):
+        """True until AdGuard has written its first query-log file."""
+        return not (os.path.exists(self.path) or os.path.exists(self.path + ".1"))
 
     def poll(self, store):
         # Position per file identity (inode), so a rotation (querylog.json -> .json.1) carries on
@@ -196,13 +199,13 @@ class AdGuardLogSource:
                 chunk = f.read()
             end = offset + chunk.rfind(b"\n") + 1
             for line in chunk[:end - offset].splitlines():
-                if not any(c.encode() in line for c in self.clients):
+                if self.clients and not any(c.encode() in line for c in self.clients):
                     continue  # cheap skip before parsing: most lines are other people's
                 try:
                     e = json.loads(line)
                 except ValueError:
                     continue
-                if e.get("IP") not in self.clients or "QH" not in e:
+                if (self.clients and e.get("IP") not in self.clients) or "QH" not in e:
                     continue
                 rows.append({"time": e["T"], "client": e["IP"], "name": e["QH"], "qtype": e.get("QT", ""),
                              "upstream": e.get("Upstream", ""), "answers": dnswire.answers(e.get("Answer")),

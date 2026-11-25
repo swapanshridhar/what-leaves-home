@@ -4,8 +4,9 @@
   WL_ADGUARD_USER       its username
   WL_ADGUARD_PASSWORD   its password (or WL_ADGUARD_PASSWORD_FILE)
   WL_FILES_DIR          read collector files from this folder instead
-  WL_ADGUARD_LOG        also read AdGuard's querylog.json directly (as well as the above)...
-  WL_ADGUARD_LOG_CLIENTS  ...keeping only these addresses (required with it)
+  WL_ADGUARD_LOG        read AdGuard's querylog.json directly (no login; the all-in-one compose
+                        uses this), alone or alongside one of the sources above
+  WL_ADGUARD_LOG_CLIENTS  optional: keep only these addresses from it
   WL_DEMO=1             show made-up devices (the default when nothing is set)
   WL_CLIENTS            only these client addresses, comma-separated
   WL_NAMES              friendly names: 192.168.1.20=TV,192.168.1.21=Speaker
@@ -43,7 +44,7 @@ def env(name, default=""):
 
 
 def configured_by_env():
-    return any(env(k) for k in ("WL_DEMO", "WL_FILES_DIR", "WL_ADGUARD_URL"))
+    return any(env(k) for k in ("WL_DEMO", "WL_FILES_DIR", "WL_ADGUARD_URL", "WL_ADGUARD_LOG"))
 
 
 def pick_source(store):
@@ -74,10 +75,16 @@ def main():
     os.makedirs(folder, exist_ok=True)
     store = Store(db)
     net.set_recorder(store.add_own_call)
-    source = pick_source(store)
+    log_source = None
     if env("WL_ADGUARD_LOG"):
         keep = [c.strip() for c in env("WL_ADGUARD_LOG_CLIENTS").split(",") if c.strip()]
-        source = Sources([source, AdGuardLogSource(env("WL_ADGUARD_LOG"), keep)])
+        log_source = AdGuardLogSource(env("WL_ADGUARD_LOG"), keep)
+    if log_source and not any(env(k) for k in ("WL_DEMO", "WL_FILES_DIR", "WL_ADGUARD_URL")):
+        source = log_source  # the all-in-one setup: AdGuard's log is the source
+    else:
+        source = pick_source(store)
+        if log_source:
+            source = Sources([source, log_source])
     keep_days = int(env("WL_KEEP_DAYS", "30"))
     every = int(env("WL_POLL_SECONDS", "300"))
     offline = env("WL_OFFLINE") == "1"
@@ -100,13 +107,16 @@ def main():
               "offline": offline, "auth": auth.enabled, "scan_hosts": scanning, "last_poll": None, "last_error": None,
               # The setup page may connect AdGuard only when no environment setting chose the source.
               "configurable": not configured_by_env(),
-              "adguard_url": env("WL_ADGUARD_URL") or saved.get("url", "")}
+              "adguard_url": env("WL_ADGUARD_URL") or saved.get("url", ""),
+              # All-in-one: AdGuard's page is on this machine at this port (the page builds the link).
+              "adguard_ui_port": env("WL_ADGUARD_UI_PORT")}
     wake = threading.Event()
 
     def poll_forever():
         while True:
             try:
                 status["source"] = holder.kind
+                status["waiting_for_adguard"] = bool(log_source and log_source.waiting())
                 added = holder.poll(store)
                 store.prune(keep_days)
                 status.update(last_poll=datetime.now(timezone.utc).isoformat(timespec="seconds"),

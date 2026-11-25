@@ -284,7 +284,20 @@ def summary_line(a, comps, per_day):
     return " · ".join(parts) or "No activity yet"
 
 
-def device_view(store, owners, client, site_names=None, with_detail=True):
+def router_client(store, min_lookups=200, min_share=0.6):
+    """The address most lookups come from, when it's most of them: a router answering
+    DNS for every device (Google Wifi, Nest Wifi, eero and others do this)."""
+    from datetime import datetime, timedelta, timezone
+    since = (datetime.now(timezone.utc) - timedelta(days=1)).strftime("%Y-%m-%dT%H:%M:%S")
+    rows = store.q("SELECT client, COUNT(*) FROM lookups WHERE time >= ? GROUP BY client", (since,))
+    total = sum(n for _c, n in rows)
+    if total < min_lookups:
+        return None
+    client, n = max(rows, key=lambda r: r[1])
+    return {"client": client, "share": round(n / total, 2)} if n / total >= min_share else None
+
+
+def device_view(store, owners, client, site_names=None, with_detail=True, router=None):
     raw = store.device(client)
     comps = companies_for(raw, owners, site_names)
     server = not client.startswith("svc:") and any(client in s["host_ips"] for s in store.services())
@@ -294,7 +307,11 @@ def device_view(store, owners, client, site_names=None, with_detail=True):
         a.update(score=100, grade="–", verdict="quiet", label="No traffic seen", reasons=[])
     svc = raw.get("service")
     kind = service_kind(svc["name"], svc["image"]) if svc else kind_of(raw["name"] or "")
-    view = {"client": client, "name": raw["name"], "kind": kind,
+    is_router = bool(router and router["client"] == client)
+    if is_router:
+        kind = "router"
+    view = {"client": client, "name": raw["name"] or ("Everything behind your router" if is_router else ""),
+            "kind": kind, "router": is_router,
             "service": {"host": svc["host"], "image": svc["image"], "ports": svc["ports"], "network": svc["network"]}
             if svc else None,
             "first": raw["first"], "last": raw["last"], "summary": summary_line(a, comps, a["per_day_out"]),
@@ -311,7 +328,9 @@ def device_view(store, owners, client, site_names=None, with_detail=True):
 
 
 def overview(store, owners, site_names=None):
-    devices = [device_view(store, owners, d["client"], site_names, with_detail=False) for d in store.devices()]
+    router = router_client(store)
+    devices = [device_view(store, owners, d["client"], site_names, with_detail=False, router=router)
+               for d in store.devices()]
     services = [device_view(store, owners, s["id"], site_names, with_detail=False) for s in store.services()]
     counts = {"total": len(devices) + len(services), "good": 0, "check": 0, "concern": 0, "quiet": 0,
               "devices": len(devices), "services": len(services)}
@@ -361,7 +380,7 @@ def overview(store, owners, site_names=None):
                 rules.setdefault(r, []).append(d["name"] or d["client"])
     block = [{"rule": r, "used_by": sorted(set(v))} for r, v in sorted(rules.items(), key=lambda kv: -len(kv[1]))]
     return {"counts": counts, "headline": headline, "finding": finding, "devices": devices, "services": services,
-            "companies": companies, "scan": store.scan_results(), "block_rules": block}
+            "companies": companies, "scan": store.scan_results(), "block_rules": block, "router": router}
 
 
 SERVER_PORTS = {8096: "Jellyfin", 8123: "Home Assistant", 8989: "Sonarr", 7878: "Radarr", 9696: "Prowlarr",
