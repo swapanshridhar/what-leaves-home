@@ -198,6 +198,7 @@ a.finding:hover { text-decoration: none; box-shadow: var(--shadow-hover); }
 .reasons .good .ri { background: var(--good-soft); color: var(--good); }
 .reasons .warn .ri { background: var(--check-soft); color: var(--check); }
 .reasons .bad .ri { background: var(--concern-soft); color: var(--concern); }
+.reasons .info .ri { background: var(--brand-soft); color: var(--brand); }
 .kpis { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; }
 .kpi { padding: 14px 16px; border-radius: 12px; background: var(--panel-2); border: 1px solid var(--line); }
 .kpi b { display: block; font-size: 22px; letter-spacing: -.02em; }

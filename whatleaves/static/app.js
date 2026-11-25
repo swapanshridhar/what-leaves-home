@@ -407,7 +407,7 @@ function ring(d) {
     <div><div class="badge ${d.verdict}">${esc(d.label)}</div><div class="muted" style="font-size:12.5px;margin-top:6px">${d.verdict === "quiet" ? "Nothing to grade yet" : `Score ${d.score} of 100`}</div></div></div>`;
 }
 function renderDevice(d) {
-  const sym = { good: "✓", warn: "!", bad: "✕" };
+  const sym = { good: "✓", warn: "!", bad: "✕", info: "i" };
   const reasons = d.reasons.map((r) => `<li class="${r.level}"><span class="ri">${sym[r.level]}</span><span>${esc(r.text)}</span></li>`).join("");
   const comps = d.companies.map((c) => `<div class="card comp">
       <div class="top"><span class="cn">${esc(c.company)}</span>
@@ -427,7 +427,7 @@ function renderDevice(d) {
       <div class="muted">${d.service ? `Runs on <b>${esc(d.service.host)}</b>${d.service.image ? " · <span class='mono'>" + esc(d.service.image) + "</span>" : ""}${d.service.ports.length ? " · ports " + esc(d.service.ports.join(", ")) : ""}` : esc(d.client)} · ${esc(d.summary)}</div></div>${ring(d)}</div>
     ${d.router ? `<a class="finding check" href="#/visible" style="margin-top:18px"><span class="ico">${ICON.router}</span><span><div class="t">This is your router, asking on behalf of every device behind it.</div><span class="go">See each device separately →</span></span></a>` : ""}
     <div class="cols">
-      <div class="card pad"><h2 style="margin-top:0">Why it got ${esc(d.grade)}</h2><ul class="reasons">${reasons || "<li>Not enough data yet.</li>"}</ul></div>
+      <div class="card pad"><h2 style="margin-top:0">${d.verdict === "unmatched" ? "Why it has no grade" : `Why it got ${esc(d.grade)}`}</h2><ul class="reasons">${reasons || "<li>Not enough data yet.</li>"}</ul></div>
       <div class="card pad"><div class="kpis">
         <div class="kpi"><b>${bytes(d.per_day_out)}</b><span>sent per day (estimate)</span></div>
         <div class="kpi"><b>${plural(d.company_count, "company", "companies")}</b><span>it talks to</span></div>
@@ -500,7 +500,7 @@ function renderApp(a) {
       <div class="card"><b><span class="ok-ico">${ICON.check}</span>No telemetry</b><p>It never reports usage, errors or anything else to anyone.</p></div>
       <div class="card"><b><span class="ok-ico">${ICON.check}</span>No update checks</b><p>It doesn't phone home to look for new versions.</p></div>
       <div class="card"><b><span class="ok-ico">${ICON.check}</span>Nothing loaded from outside</b><p>No outside fonts, scripts or images; the browser is told to refuse them.</p></div>
-      <div class="card"><b>${ICON.globe} ${plural(internet.length, "internet destination")}</b><p>${s.offline ? "Offline mode: it never contacts the internet." : `Only the address-ownership list, once a month. Turn it off with WL_OFFLINE=1.`}</p></div>
+      <div class="card"><b>${ICON.globe} ${plural(internet.length, "internet destination")}</b><p>${s.offline ? "Offline mode: it never contacts the internet." : `Only the address-ownership lists (IPv4 and IPv6), once a month. Turn it off with WL_OFFLINE=1.`}</p></div>
     </div>
     <h2>Every place it has contacted <small>kept ${s.keep_days} days</small></h2>
     <div class="card pad scroll"><table><thead><tr><th>Where</th><th>Why</th><th>Network</th><th class="num">Times</th><th class="num">Data</th><th>Last</th><th class="num">Failed</th></tr></thead>

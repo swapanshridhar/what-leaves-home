@@ -16,6 +16,7 @@ import time
 from array import array
 
 ASN_URL = "https://iptoasn.com/data/ip2asn-v4-u32.tsv.gz"
+ASN6_URL = "https://iptoasn.com/data/ip2asn-v6.tsv.gz"
 ASN_MAX_AGE = 30 * 86400
 
 # Big networks under the names people know.
@@ -150,13 +151,15 @@ def clean_asn_name(asn, desc):
 
 
 class Owners:
-    """Who owns an IPv4 address, from the iptoasn table. Thread-safe; loads in
+    """Who owns an address, from the iptoasn tables (IPv4 and IPv6). Thread-safe; loads in
     the background so the page works (without owners) before it's ready."""
 
     def __init__(self, folder, enabled=True, extra_ranges=None):
         # enabled=False (WL_OFFLINE=1): never download; company names then come
         # only from the built-in site list.
         self.path = os.path.join(folder, "ip2asn-v4-u32.tsv.gz")
+        self.path6 = os.path.join(folder, "ip2asn-v6.tsv.gz")
+        self.starts6, self.ends6, self.idx6 = [], [], []  # 128-bit ints: Python lists, not arrays
         self.enabled = enabled
         self.starts, self.ends, self.idx = array("I"), array("I"), array("I")
         self.names, self.ccs = [], []
@@ -171,16 +174,20 @@ class Owners:
         if self.enabled:
             threading.Thread(target=self._load, daemon=True).start()
 
+    @staticmethod
+    def _fetch_if_old(path, url, purpose):
+        if os.path.exists(path) and time.time() - os.path.getmtime(path) < ASN_MAX_AGE:
+            return
+        from .net import fetch
+        body = fetch(url, purpose, timeout=120)
+        tmp = path + ".part"
+        with open(tmp, "wb") as f:
+            f.write(body)
+        os.replace(tmp, path)
+
     def _load(self):
         try:
-            fresh = os.path.exists(self.path) and time.time() - os.path.getmtime(self.path) < ASN_MAX_AGE
-            if not fresh:
-                from .net import fetch
-                body = fetch(ASN_URL, "Download the address-ownership list (iptoasn.com, monthly)", timeout=120)
-                tmp = self.path + ".part"
-                with open(tmp, "wb") as f:
-                    f.write(body)
-                os.replace(tmp, self.path)
+            self._fetch_if_old(self.path, ASN_URL, "Download the address-ownership list (iptoasn.com, monthly)")
             starts, ends, idx, names, ccs, seen = array("I"), array("I"), array("I"), [], [], {}
             with gzip.open(self.path, "rt", encoding="utf-8", errors="replace") as f:
                 for line in f:
@@ -200,6 +207,35 @@ class Owners:
                 self.ready, self.error = True, None
         except Exception as exc:  # no internet, disk full: the page still works without owners
             self.error = f"{type(exc).__name__}: {exc}"
+            return
+        try:
+            self._fetch_if_old(self.path6, ASN6_URL, "Download the IPv6 address-ownership list (iptoasn.com, monthly)")
+            starts6, ends6, idx6 = [], [], []
+            with gzip.open(self.path6, "rt", encoding="utf-8", errors="replace") as f:
+                for line in f:
+                    p = line.rstrip("\n").split("\t")
+                    if len(p) < 5 or p[2] == "0":
+                        continue
+                    try:
+                        lo, hi = int(ipaddress.IPv6Address(p[0])), int(ipaddress.IPv6Address(p[1]))
+                    except ValueError:
+                        continue
+                    key = (int(p[2]), p[3])
+                    with self.lock:  # names are shared with the IPv4 table
+                        if key not in seen:
+                            seen[key] = len(self.names)
+                            self.names.append(clean_asn_name(int(p[2]), p[4]))
+                            self.ccs.append(p[3] if p[3] != "None" else "")
+                    starts6.append(lo)
+                    ends6.append(hi)
+                    idx6.append(seen[key])
+            order = sorted(range(len(starts6)), key=starts6.__getitem__)  # lookups bisect on start
+            with self.lock:
+                self.starts6 = [starts6[i] for i in order]
+                self.ends6 = [ends6[i] for i in order]
+                self.idx6 = [idx6[i] for i in order]
+        except Exception as exc:  # IPv4 owners still work
+            self.error = f"IPv6 list: {type(exc).__name__}: {exc}"
 
     def lookup(self, addr):
         """(owner, country code) or ("", "")."""
@@ -210,12 +246,14 @@ class Owners:
         for net, name, cc in self.extra:
             if ip.version == net.version and ip in net:
                 return name, cc
-        if ip.version != 4 or not self.ready:
+        if not self.ready:
             return "", ""
         n = int(ip)
         with self.lock:
-            i = bisect.bisect_right(self.starts, n) - 1
-            if i >= 0 and n <= self.ends[i]:
-                j = self.idx[i]
+            starts, ends, idx = (self.starts, self.ends, self.idx) if ip.version == 4 else \
+                (self.starts6, self.ends6, self.idx6)
+            i = bisect.bisect_right(starts, n) - 1
+            if i >= 0 and n <= ends[i]:
+                j = idx[i]
                 return self.names[j], self.ccs[j]
         return "", ""

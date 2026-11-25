@@ -348,11 +348,22 @@ def device_view(store, owners, client, site_names=None, with_detail=True, router
         # Nothing seen: no grade rather than a flattering A.
         a.update(score=100, grade="–", verdict="quiet", label="No traffic seen", reasons=[])
     svc = raw.get("service")
+    unmatched = bool(svc) and is_unattributed(svc["name"])
+    if unmatched and a["verdict"] != "quiet":
+        # Connections that ended before the agent saw which program opened them. Shown, so
+        # nothing is hidden, but not graded: a grade would blame no app in particular.
+        a.update(score=100, grade="–", verdict="unmatched", label="Not graded: no app identified", reasons=[
+            {"level": "info", "text": "These connections ended before the agent could see which program opened "
+                                      "them: usually quick checks such as updates or the time. Who they went to is "
+                                      "listed below. They aren't graded, because no app can be blamed for them."}])
     kind = service_kind(svc["name"], svc["image"]) if svc else kind_of(raw["name"] or "")
     is_router = bool(router and router["client"] == client)
     if is_router:
         kind = "router"
-    view = {"client": client, "name": raw["name"] or ("Everything behind your router" if is_router else ""),
+    name = raw["name"] or ("Everything behind your router" if is_router else "")
+    if unmatched:
+        name = "Short-lived connections (app not identified)"
+    view = {"client": client, "name": name,
             "kind": kind, "router": is_router,
             "service": {"host": svc["host"], "image": svc["image"], "ports": svc["ports"], "network": svc["network"]}
             if svc else None,
@@ -363,7 +374,7 @@ def device_view(store, owners, client, site_names=None, with_detail=True, router
             "bytes_out": sum(c["bytes_out"] for c in comps), "bytes_in": sum(c["bytes_in"] for c in comps),
             "lookups": sum(l["count"] for l in raw["lookups"]), "company_count": len(comps),
             "activity": store.hourly(client)}
-    view["actions"] = actions_for(raw, comps, a) if view["verdict"] != "quiet" else []
+    view["actions"] = actions_for(raw, comps, a) if view["verdict"] not in ("quiet", "unmatched") else []
     if with_detail:
         view.update(companies=comps, lookups_detail=raw["lookups"], connections=raw["connections"])
     return view
@@ -374,7 +385,7 @@ def overview(store, owners, site_names=None):
     devices = [device_view(store, owners, d["client"], site_names, with_detail=False, router=router)
                for d in store.devices()]
     services = [device_view(store, owners, s["id"], site_names, with_detail=False) for s in store.services()]
-    counts = {"total": len(devices) + len(services), "good": 0, "check": 0, "concern": 0, "quiet": 0,
+    counts = {"total": len(devices) + len(services), "good": 0, "check": 0, "concern": 0, "quiet": 0, "unmatched": 0,
               "devices": len(devices), "services": len(services)}
     for d in devices + services:
         counts[d["verdict"]] += 1

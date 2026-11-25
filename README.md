@@ -19,7 +19,7 @@ Status: early (0.8). Grades are a first version: simple rules, always shown with
 - **Companies and countries, not IP addresses.** "LG, hosted on Amazon Web Services, US", with the exact names and addresses one click away. Destinations nothing looked up are still labelled by what they are ("Time server", "Encrypted messaging", "Tailscale relays").
 - **What to do about it.** Ready-to-paste block rules for AdGuard Home or Pi-hole for the trackers that got through, plus a firmware or settings nudge where it fits. The overview gathers one block list for the whole home.
 - **Your home servers, app by app.** A small agent on each server tells apart which container or service phones home to whom: Jellyfin, Home Assistant, the media apps, anything in Docker or systemd.
-- **Honesty about itself.** A "This app" page lists every network request What Leaves Home makes. In normal use that's your DNS filter and one monthly download of a public address-ownership list. No telemetry, no update checks, nothing loaded from outside.
+- **Honesty about itself.** A "This app" page lists every network request What Leaves Home makes. In normal use that's your DNS filter and a monthly download of a public address-ownership list (one file for IPv4, one for IPv6). No telemetry, no update checks, nothing loaded from outside.
 - **Set-up that ends in a result.** A first-run guide ends with "point one device here" and shows it on screen as soon as it arrives. It spots when your router is hiding your devices, and explains the fix for your kind of router.
 
 ## How it's different
@@ -150,7 +150,7 @@ Every device starts at 100. Points come off for: ad or tracking services (blocke
 
 ### Company names and countries
 
-Names like `cloud.lgthinq.com` are matched to companies from a built-in list. Addresses are matched to the network that owns them using the free [iptoasn.com](https://iptoasn.com) table (public domain), downloaded once a month and kept on your machine. Nothing is looked up online per address. Set `WL_OFFLINE=1` to never download it.
+Names like `cloud.lgthinq.com` are matched to companies from a built-in list. Addresses are matched to the network that owns them using the free [iptoasn.com](https://iptoasn.com) tables for IPv4 and IPv6 (public domain), downloaded once a month and kept on your machine. Nothing is looked up online per address. Set `WL_OFFLINE=1` to never download them.
 
 ## Services on your home servers
 
@@ -185,7 +185,7 @@ DNS logs are a record of what people and devices do. What Leaves Home:
 - keeps its copy on the machine it runs on, for `WL_KEEP_DAYS` days
 - keeps no access log, sends no telemetry and never checks for updates
 - loads nothing from outside in your browser: no fonts, scripts or images from elsewhere
-- records **every network request it makes itself** and shows them on the **This app** tab. In normal use that's AdGuard on your network and the monthly ownership list. With `WL_OFFLINE=1` it never contacts the internet at all.
+- records **every network request it makes itself** and shows them on the **This app** tab. In normal use that's AdGuard on your network and the monthly ownership lists. With `WL_OFFLINE=1` it never contacts the internet at all.
 
 ### Login
 

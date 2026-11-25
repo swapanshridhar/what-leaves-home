@@ -105,10 +105,17 @@ class Analysis(unittest.TestCase):
         with tempfile.TemporaryDirectory() as d:
             with gzip.open(os.path.join(d, "ip2asn-v4-u32.tsv.gz"), "wt") as f:
                 f.write("872415232\t872546303\t16509\tUS\tAMAZON-02 - Amazon.com, Inc.\n")  # 52.0.0.0/15
+            with gzip.open(os.path.join(d, "ip2asn-v6.tsv.gz"), "wt") as f:
+                f.write("2600:1f00::\t2600:1fff:ffff:ffff:ffff:ffff:ffff:ffff\t16509\tUS\tAMAZON-02 - Amazon.com, Inc.\n")
+                f.write("2001:db8::\t2001:db8::ffff\t64500\tDE\tEXAMPLE-NET Example\n")
             o = Owners(d)
-            o._load()  # fresh file on disk, so no download
+            o._load()  # fresh files on disk, so no download
             self.assertEqual(o.lookup("52.1.2.3"), ("Amazon Web Services", "US"))
             self.assertEqual(o.lookup("8.8.8.8"), ("", ""))
+            self.assertEqual(o.lookup("2600:1f18::1"), ("Amazon Web Services", "US"))
+            self.assertEqual(o.lookup("2001:db8::1")[1], "DE")
+            self.assertEqual(o.lookup("2a00::1"), ("", ""))
+            self.assertIsNone(o.error)
 
 
 class Sources(unittest.TestCase):
