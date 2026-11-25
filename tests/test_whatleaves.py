@@ -233,6 +233,16 @@ class Router(unittest.TestCase):
         self.assertIsNone(analysis.router_client(Store(":memory:")))
 
 
+class FirstDevice(unittest.TestCase):
+    def test_new_clients_are_the_ones_seen_since(self):
+        store = Store(":memory:")
+        store.add_lookups([{"time": "2026-11-24T10:00:00Z", "client": "192.168.1.5", "name": "old.example"},
+                           {"time": "2026-11-24T12:00:00Z", "client": "192.168.1.9", "name": "a.example"},
+                           {"time": "2026-11-24T12:01:00Z", "client": "192.168.1.9", "name": "b.example"}])
+        found = store.new_clients("2026-11-24T11:00:00Z")
+        self.assertEqual([(c["client"], c["lookups"]) for c in found], [("192.168.1.9", 2)])
+
+
 class Connect(unittest.TestCase):
     def test_spots_a_router_answering_for_everyone(self):
         from whatleaves.sources import test_adguard

@@ -1,3 +1,3 @@
 """What Leaves Home: see what each device on your network talks to."""
 
-__version__ = "0.5.0"
+__version__ = "0.6.0"

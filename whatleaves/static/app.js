@@ -23,7 +23,35 @@ function when(iso) {
   return iso ? new Date(iso).toLocaleString(undefined, { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" }) : "–";
 }
 
+/* ---------- live demo (static files, no server): see tools/build_demo.py */
+const DEMO_FILE = (path) => {
+  const [p, q] = path.split("?");
+  if (p === "/api/device") return "api/device/" + encodeURIComponent(new URLSearchParams(q).get("client")).replace(/%/g, "~") + ".json";
+  if (p === "/api/session") return null;
+  return "api/" + p.replace("/api/", "") + ".json";
+};
+// Keep the demo's times fresh: move every timestamp forward by however old the build is.
+function shiftTimes(obj, ms) {
+  if (Array.isArray(obj)) return obj.map((x) => shiftTimes(x, ms));
+  if (obj && typeof obj === "object") { for (const k in obj) obj[k] = shiftTimes(obj[k], ms); return obj; }
+  if (typeof obj === "string" && /^\d{4}-\d\d-\d\dT\d\d:\d\d/.test(obj)) {
+    const t = Date.parse(obj);
+    return isNaN(t) ? obj : new Date(t + ms).toISOString();
+  }
+  return obj;
+}
+async function demoApi(path, body) {
+  if (body !== undefined) throw Object.assign(new Error("This is the live demo: nothing can be changed here. Install it to try that."), { data: { ok: false, message: "This is the live demo: nothing can be changed here. Install it to try that." } });
+  const file = DEMO_FILE(path);
+  if (!file) return { auth: "off" };
+  if (path.startsWith("/api/new-clients")) return [];
+  const r = await fetch(file);
+  if (!r.ok) throw new Error("Not part of the demo");
+  return shiftTimes(await r.json(), Date.now() - Date.parse(window.WL_DEMO.generated));
+}
+
 async function api(path, body) {
+  if (window.WL_DEMO) return demoApi(path, body);
   const opts = body === undefined ? {} : { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) };
   const r = await fetch(path, opts);
   const data = await r.json().catch(() => ({}));
@@ -139,6 +167,8 @@ async function route() {
     else if (view === "app") { setTab("app"); main.innerHTML = renderApp(await api("/api/app")); }
     else if (view === "settings") { setTab(""); main.innerHTML = renderSettings(); wireSettings(); }
     else if (view === "connect") { setTab(""); main.innerHTML = renderConnect(); wireConnect(); }
+    else if (view === "start") { setTab(""); main.innerHTML = renderStart(); wireStart(); }
+    else if (view === "first-device") { setTab(""); main.innerHTML = renderFirstDevice(); wireFirstDevice(); }
     else if (view === "visible") { setTab(""); main.innerHTML = renderVisible(overviewCache || await loadOverview()); }
     else location.hash = "#/";
   } catch (e) {
@@ -160,7 +190,9 @@ async function refreshStatus() {
 /* ---------- overview */
 function renderOverview(o) {
   const c = o.counts;
-  const demo = statusCache?.source === "demo"
+  const demo = window.WL_DEMO
+    ? `<a class="card pad connectcta" href="${esc(window.WL_DEMO.repo || "#/")}"><span class="ico">${ICON.home}</span><span><b>This is the live demo, with made-up devices.</b> Install it on any always-on machine and point one device at it: you'll see your own in five minutes.</span><span class="go">Get it →</span></a>`
+    : statusCache?.source === "demo"
     ? `<a class="card pad connectcta" href="#/connect"><span class="ico">${ICON.dns}</span><span><b>These are made-up demo devices.</b> Connect your AdGuard Home to see your own network: it takes a minute.</span><span class="go">Connect →</span></a>` : "";
   const f = o.finding;
   const finding = f ? `<a class="finding ${f.verdict}" href="#/device/${encodeURIComponent(f.client)}">
@@ -303,7 +335,7 @@ function setupPanel(a, empty) {
       ${agents}
       ${a.suggestions.length ? `<p><b>These machines look like servers:</b></p><div class="grid">${sugg}</div>` :
         `<p class="muted">No other machines look like servers yet${o_scan_hint()}. You can still add any machine:</p>${cmdBlock("With Docker", c.docker)}${cmdBlock("Or as a system service", c.install)}`}
-      <p class="muted" style="font-size:12.5px;margin-bottom:0">The commands contain your token: treat them like a password. The agent's code is at <a href="/whatleaves-agent.py">/whatleaves-agent.py</a>; the installer is <a href="/install-agent.sh">/install-agent.sh</a>.</p>
+      <p class="muted" style="font-size:12.5px;margin-bottom:0">The commands contain your token: treat them like a password. The agent's code is at <a href="whatleaves-agent.py">whatleaves-agent.py</a>; the installer is <a href="install-agent.sh">install-agent.sh</a>.</p>
     </div>`;
 }
 function o_scan_hint() { return statusCache?.scan_hosts ? "" : " (turning on the scan, WL_SCAN_TARGETS, helps find them)"; }
@@ -451,6 +483,7 @@ function renderApp(a) {
 
 /* ---------- settings */
 function renderSettings() {
+  if (window.WL_DEMO) return demoOnly("Settings");
   const auth = statusCache?.auth;
   return `<section><h1>Settings</h1>
     ${auth ? `<h2>Change password</h2><form class="card pad form" id="pw">
@@ -474,10 +507,28 @@ function wireSettings() {
   $("#logout")?.addEventListener("click", async () => { await api("/api/logout", {}); boot(); });
 }
 
+/* ---------- per-device DNS steps (shared by the guide and the wizard) */
+const DEVICE_STEPS = [
+  ["iPhone, iPad", "Settings → Wi-Fi → (i) next to your network → Configure DNS → Manual → remove the existing servers, add the address."],
+  ["Mac", "System Settings → Wi-Fi → Details on your network → DNS → replace the servers with the address."],
+  ["Windows", "Settings → Network & internet → Wi-Fi (or Ethernet) → Hardware properties → DNS server assignment → Edit → Manual → IPv4 on → the address."],
+  ["Android phone or tablet", "Settings → Wi-Fi → your network → Edit → Advanced → IP settings: Static, then DNS 1 = the address. (Android's \"Private DNS\" needs AdGuard with encryption set up, so it's harder.)"],
+  ["Apple TV", "Settings → Network → your network → Configure DNS → Manual → the address."],
+  ["Google TV, Android TV", "Settings → Network & Internet → your network → IP settings: Static → DNS 1 = the address."],
+  ["Samsung, LG and other smart TVs", "Network settings → IP or advanced settings → DNS: Manual (or Enter manually) → the address."],
+  ["PlayStation, Xbox, Switch", "Network settings → set up connection → manual / advanced → DNS: Manual → primary = the address."],
+  ["Roku, smart plugs, fans, appliances", "No DNS setting. Use a helper router, or your router's DNS setting, for these."],
+];
+function thisAddress() {
+  // Only an address other devices can use: not this machine's loopback.
+  const h = location.hostname;
+  if (/^127\.|^\[?::1\]?$/.test(h)) return "";
+  return /^[0-9.]+$|^\[?[0-9a-f:]+\]?$/i.test(h) ? h : "";
+}
+
 /* ---------- see each device separately */
 function renderVisible(o) {
-  const host = /^[0-9.]+$|^\[?[0-9a-f:]+\]?$/i.test(location.hostname) ? location.hostname : "";
-  const ip = host || "the address of the machine running AdGuard";
+  const ip = thisAddress() || "the address of the machine running AdGuard";
   const r = o.router;
   const step = (who, how) => `<tr><td><b>${who}</b></td><td>${how}</td></tr>`;
   return `<section><h1>See each device separately</h1>
@@ -493,15 +544,7 @@ function renderVisible(o) {
     <div class="card pad scroll">
       <p style="margin-top:0">Set the DNS server to <span class="mono">${esc(ip)}</span> on the devices you care about most. Each takes about a minute.</p>
       <table><tbody>
-        ${step("iPhone, iPad", "Settings → Wi-Fi → (i) next to your network → Configure DNS → Manual → remove the existing servers, add the address.")}
-        ${step("Mac", "System Settings → Wi-Fi → Details on your network → DNS → replace the servers with the address.")}
-        ${step("Windows", "Settings → Network & internet → Wi-Fi (or Ethernet) → Hardware properties → DNS server assignment → Edit → Manual → IPv4 on → the address.")}
-        ${step("Android phone or tablet", "Settings → Wi-Fi → your network → Edit → Advanced → IP settings: Static, then DNS 1 = the address. (Android's \"Private DNS\" needs AdGuard with encryption set up, so it's harder.)")}
-        ${step("Apple TV", "Settings → Network → your network → Configure DNS → Manual → the address.")}
-        ${step("Google TV, Android TV", "Settings → Network & Internet → your network → IP settings: Static → DNS 1 = the address.")}
-        ${step("Samsung, LG and other smart TVs", "Network settings → IP or advanced settings → DNS: Manual (or Enter manually) → the address.")}
-        ${step("PlayStation, Xbox, Switch", "Network settings → set up connection → manual / advanced → DNS: Manual → primary = the address.")}
-        ${step("Roku, smart plugs, fans, appliances", "No DNS setting. Use 3 or 4 for these.")}
+        ${DEVICE_STEPS.map(([who, how]) => step(who, how)).join("")}
       </tbody></table>
       <p class="muted" style="margin-bottom:0">Also switch off IPv6 DNS from the router: either give the device the address for IPv6 too, or turn IPv6 off in the router's app (Google Home app → Wi-Fi → Settings → Advanced networking → IPv6). Otherwise some lookups still go through the router.</p>
     </div>
@@ -513,8 +556,77 @@ function renderVisible(o) {
   </section>`;
 }
 
+/* ---------- first-run wizard */
+async function wizardDone() {
+  await api("/api/wizard", { done: true }).catch(() => {});
+  if (statusCache) statusCache.wizard_done = true;
+}
+function renderStart() {
+  const bundle = statusCache?.source === "adguard-log";
+  const choice = (id, icon, title, text) => `<button class="card pad choice" id="${id}"><span class="ico">${icon}</span><span><b>${title}</b><span class="muted">${text}</span></span></button>`;
+  return `<section class="wizard"><div class="step">Welcome</div><h1>How do you want to start?</h1>
+    <p class="lede">You can change this later in Settings. Nothing here changes your network.</p>
+    <div class="choices">
+      ${bundle ? choice("w-bundle", ICON.dns, "Set up AdGuard and my first device", "You installed AdGuard Home together with this app. Two short steps, then you'll see your first device.") : ""}
+      ${!bundle ? choice("w-connect", ICON.dns, "Connect my AdGuard Home", "You already run AdGuard Home. Enter its address and login, test, done.") : ""}
+      ${!bundle ? choice("w-demo", ICON.media, "Look around the demo first", "Made-up devices, every kind of result. Connect yours whenever you like.") : ""}
+    </div></section>`;
+}
+function wireStart() {
+  $("#w-bundle")?.addEventListener("click", () => (location.hash = "#/first-device"));
+  $("#w-connect")?.addEventListener("click", () => { sessionStorageSet("wl-after-connect", "first-device"); location.hash = "#/connect"; });
+  $("#w-demo")?.addEventListener("click", async () => { await wizardDone(); location.hash = "#/"; });
+}
+function sessionStorageSet(k, v) { try { sessionStorage.setItem(k, v); } catch (e) { /* fine */ } }
+function sessionStorageTake(k) { try { const v = sessionStorage.getItem(k); sessionStorage.removeItem(k); return v; } catch (e) { return null; } }
+
+let waitTimer = null;
+function renderFirstDevice() {
+  const ip = thisAddress();
+  const waitingAg = statusCache?.waiting_for_adguard;
+  const agUrl = statusCache?.adguard_url || (statusCache?.adguard_ui_port ? `${location.protocol}//${location.hostname}:${statusCache.adguard_ui_port}` : "");
+  return `<section class="wizard"><div class="step">First device</div><h1>Point one device here</h1>
+    <p class="lede">Pick a phone, laptop or TV. Set its DNS to this machine and you'll see it on its own line in a few minutes. Only that device changes; nothing else on your network does.</p>
+    ${waitingAg && agUrl ? `<div class="finding check" style="margin-top:16px"><span class="ico">${ICON.alert}</span><span><div class="t">First, finish AdGuard Home's setup</div>
+      <div>Open <a href="${esc(agUrl)}" target="_blank" rel="noopener">${esc(agUrl)}</a> and follow its five steps. Keep its web page on port ${esc(statusCache.adguard_ui_port || "3000")} and DNS on port 53.</div></span></div>` : ""}
+    <div class="card pad" style="margin-top:18px">
+      <div class="addr"><span class="muted">The address to enter</span><b class="mono">${esc(ip || "this machine's address on your network (for example 192.168.1.10)")}</b>${ip ? `<button class="copy" data-copy="${esc(ip)}">${ICON.copy} Copy</button>` : ""}</div>
+      <div class="seg dtype" role="group" aria-label="Device type">${DEVICE_STEPS.slice(0, 8).map(([who], i) => `<button data-i="${i}" aria-pressed="${i === 0}">${esc(who)}</button>`).join("")}</div>
+      <p id="dsteps" class="dsteps">${esc(DEVICE_STEPS[0][1])}</p>
+      <p class="muted" style="margin-bottom:0;font-size:13px">On your phone? Open this page there: <span class="mono">${esc(location.origin)}/#/first-device</span></p>
+    </div>
+    <div class="card pad waitbox" id="waitbox"><span class="pulse"></span><span><b>Waiting for a new device…</b><span class="muted">This updates by itself as soon as its first lookups arrive.</span></span></div>
+    <p style="margin-top:18px"><a href="#/" id="w-skip">Skip for now →</a></p></section>`;
+}
+function wireFirstDevice() {
+  wireCopy();
+  document.querySelectorAll(".dtype button").forEach((b) => b.addEventListener("click", () => {
+    document.querySelectorAll(".dtype button").forEach((x) => x.setAttribute("aria-pressed", x === b));
+    $("#dsteps").textContent = DEVICE_STEPS[+b.dataset.i][1];
+  }));
+  $("#w-skip")?.addEventListener("click", () => wizardDone());
+  const since = new Date().toISOString();
+  clearInterval(waitTimer);
+  const check = async () => {
+    if (!document.getElementById("waitbox")) return clearInterval(waitTimer);
+    const found = await api("/api/new-clients?since=" + encodeURIComponent(since)).catch(() => []);
+    if (!found.length) return;
+    clearInterval(waitTimer);
+    const d = found[0];
+    $("#waitbox").outerHTML = `<div class="finding good" style="margin-top:18px"><span class="ico">${ICON.check}</span><span>
+      <div class="k">Found it</div><div class="t">${esc(d.name || d.client)} is here, with ${plural(d.lookups, "lookup")} so far.</div>
+      <a class="go" href="#/device/${encodeURIComponent(d.client)}" id="w-see">See what it talks to →</a></span></div>`;
+    $("#w-see").addEventListener("click", () => { overviewCache = null; wizardDone(); });
+  };
+  waitTimer = setInterval(check, 5000);
+}
+
 /* ---------- connect AdGuard Home */
+function demoOnly(title) {
+  return `<section><h1>${title}</h1><div class="card pad">This is the live demo: nothing can be changed here. <a href="${esc(window.WL_DEMO.repo || "#/")}">Install it</a> to connect your own network, in about five minutes.</div></section>`;
+}
 function renderConnect() {
+  if (window.WL_DEMO) return demoOnly("Connect your AdGuard Home");
   if (!statusCache?.configurable) return `<section><h1>Connect AdGuard Home</h1><div class="card pad">The source is set by environment settings (.env), so it's changed there, not here.</div></section>`;
   return `<section><h1>Connect your AdGuard Home</h1>
     <p class="lede">What Leaves Home reads AdGuard's query log. It only reads; it changes nothing in AdGuard.</p>
@@ -552,7 +664,11 @@ function wireConnect() {
     e.preventDefault();
     const r = await api("/api/connect/save", data()).catch((err) => err.data || { ok: false, message: err.message });
     show(r);
-    if (r.saved) { overviewCache = null; await refreshStatus(); setTimeout(() => (location.hash = "#/"), 1200); }
+    if (r.saved) {
+      overviewCache = null; await refreshStatus();
+      const next = sessionStorageTake("wl-after-connect");
+      setTimeout(() => (location.hash = next ? "#/" + next : "#/"), 1200);
+    }
   });
 }
 
@@ -563,7 +679,7 @@ function gate(mode) {
   const g = $("#gate");
   g.className = "gate";
   g.innerHTML = `<form class="card form" id="gform">
-      <div class="brand"><img src="/logo.svg" alt="" width="30" height="30"><span>What Leaves Home</span></div>
+      <div class="brand"><img src="logo.svg" alt="" width="30" height="30"><span>What Leaves Home</span></div>
       <h1>${setup ? "Create your login" : "Sign in"}</h1>
       <p class="muted" style="margin:0 0 6px">${setup ? "This is the first visit, so choose the username and password for this page. You can change the password later in Settings." : "Use the login you created for this page."}</p>
       <label>Username<input name="user" value="${setup ? "admin" : ""}" autocomplete="username" required></label>
@@ -584,6 +700,11 @@ async function boot() {
   $("#gate").className = "hidden";
   $("#shell").classList.remove("hidden");
   await refreshStatus();
+  const st = statusCache || {};
+  if (!st.wizard_done && !window.WL_DEMO && (st.configurable || st.source === "adguard-log") && (!location.hash || location.hash === "#/")) {
+    location.hash = "#/start";
+    return;  // the hashchange runs route()
+  }
   route();
 }
 

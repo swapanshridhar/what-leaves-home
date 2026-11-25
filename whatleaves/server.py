@@ -114,7 +114,14 @@ def make_handler(app):
                                    "owners": {"enabled": bool(o and o.enabled), "ready": bool(o and o.ready),
                                               "error": o.error if o else None}})
             if url.path == "/api/status":
-                return self._json(app.status)
+                return self._json({**app.status, "wizard_done": s.get_meta("wizard_done") == "1"})
+            if url.path == "/api/new-clients" and q.get("since"):
+                try:
+                    found = s.new_clients(q["since"][0])
+                except ValueError:
+                    return self._json({"error": "since must be a time"}, 400)
+                router = analysis.router_client(s)
+                return self._json([c for c in found if not router or c["client"] != router["client"]])
             return self._json({"error": "not found"}, 404)
 
         # ----- POST
@@ -155,6 +162,9 @@ def make_handler(app):
                 return self._json({"ok": True}, cookie=self._cookie(app.auth.new_session(app.auth.username())))
             if path in ("/api/connect/test", "/api/connect/save"):
                 return self._connect(body, save=path.endswith("save"))
+            if path == "/api/wizard":
+                app.store.set_meta("wizard_done", "1" if body.get("done") else "")
+                return self._json({"ok": True})
             if path == "/api/name":
                 client, name = str(body.get("client", "")), str(body.get("name", "")).strip()[:80]
                 if not client:

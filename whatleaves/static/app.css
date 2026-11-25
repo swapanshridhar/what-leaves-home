@@ -308,3 +308,25 @@ h2 svg { vertical-align: -3px; color: var(--muted); }
 .owner[open] > summary { border-bottom: 1px solid var(--line); margin-bottom: 10px; }
 .urow { display: grid; grid-template-columns: minmax(0, 1.2fr) minmax(0, 2fr) 90px; gap: 12px; padding: 7px 0; border-bottom: 1px solid var(--line); font-size: 13.5px; }
 .urow:last-child { border-bottom: 0; }
+
+/* ---------- wizard */
+.wizard { max-width: 860px; }
+.wizard .step { font-size: 12px; text-transform: uppercase; letter-spacing: .08em; color: var(--brand); font-weight: 700; margin-bottom: 6px; }
+.choices { display: grid; gap: 14px; margin-top: 22px; }
+.choice { all: unset; box-sizing: border-box; display: flex; gap: 16px; align-items: flex-start; cursor: pointer; padding: 20px 22px;
+  background: var(--panel); border: 1px solid var(--line); border-radius: var(--radius); box-shadow: var(--shadow); transition: transform .15s, box-shadow .15s; }
+.choice:hover { transform: translateY(-2px); box-shadow: var(--shadow-hover); }
+.choice:focus-visible { outline: 2px solid var(--brand); }
+.choice .ico { flex: none; width: 42px; height: 42px; border-radius: 12px; display: grid; place-items: center; background: var(--brand-soft); color: var(--brand); }
+.choice .ico svg { width: 22px; height: 22px; }
+.choice b { display: block; font-size: 16px; margin-bottom: 4px; }
+.addr { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; padding: 12px 14px; border-radius: 12px; background: var(--brand-soft); margin-bottom: 16px; }
+.addr b { font-size: 18px; }
+.addr .copy { margin-left: auto; }
+.dtype { flex-wrap: wrap; }
+.dsteps { margin: 14px 0; padding: 12px 14px; border-left: 3px solid var(--brand); background: var(--panel-2); border-radius: 0 10px 10px 0; }
+.waitbox { display: flex; gap: 14px; align-items: center; margin-top: 18px; }
+.waitbox b { display: block; }
+.pulse { flex: none; width: 14px; height: 14px; border-radius: 50%; background: var(--brand); animation: pulse 1.6s ease-in-out infinite; }
+@keyframes pulse { 0%, 100% { opacity: .35; transform: scale(.8); } 50% { opacity: 1; transform: scale(1.15); } }
+@media (prefers-reduced-motion: reduce) { .pulse { animation: none; } }

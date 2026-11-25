@@ -4,7 +4,9 @@ What Leaves Home shows what each device on your home network talks to on the int
 
 It runs on your own machine. Nothing is sent anywhere.
 
-Status: early (0.5). Grades are a first version: simple rules, always shown with their reasons.
+Status: early (0.6). Grades are a first version: simple rules, always shown with their reasons.
+
+**Try the live demo in your browser:** made-up devices, nothing to install. The link appears here once the project is published (it's built from `tools/build_demo.py` by `.github/workflows/pages.yml`).
 
 ## Try it in two minutes
 
@@ -16,7 +18,7 @@ cd what-leaves-home
 docker compose up -d
 ```
 
-Open `http://<that machine's address>:8080`. The first visit asks you to create the login for the page (there is no default password). With nothing connected it shows made-up demo devices, so you can see what it does first.
+Open `http://<that machine's address>:8080`. The first visit asks you to create the login for the page (there is no default password), then a short guide asks how you want to start: connect your AdGuard Home, or look around the demo first. Either way it ends with **"Point one device here"**: the address to enter and the steps for your phone, laptop or TV, and it shows that device as soon as its first lookups arrive.
 
 ## The goal: every device on its own line
 

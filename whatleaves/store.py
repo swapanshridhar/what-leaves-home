@@ -135,6 +135,14 @@ class Store:
             self.db.execute("""DELETE FROM meta WHERE key IN
                 ('demo_loaded', 'adguard_last', 'file_offsets', 'adguard_log_inodes')""")
 
+    def new_clients(self, since):
+        """Clients whose first lookup kept is after `since`: devices that just started
+        asking this AdGuard (the wizard watches for the user's first device)."""
+        names = dict(self.q("SELECT client, name FROM names"))
+        rows = self.q("""SELECT client, MIN(time), COUNT(*) FROM lookups GROUP BY client
+                         HAVING MIN(time) >= ? ORDER BY MIN(time) DESC LIMIT 10""", (utc(since),))
+        return [{"client": c, "name": names.get(c, ""), "first": f, "lookups": n} for c, f, n in rows]
+
     def services(self):
         cols = ("id", "host", "name", "image", "ports", "network", "host_ips", "last_seen")
         out = [dict(zip(cols, r)) for r in self.q(f"SELECT {', '.join(cols)} FROM services ORDER BY host, name")]
