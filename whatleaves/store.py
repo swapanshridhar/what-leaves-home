@@ -64,6 +64,33 @@ def service_id(host, name):
     return f"svc:{host}/{name}"
 
 
+MAX_CLIENT = 220            # an address, or svc:<host>/<service>
+MAX_SERVICES = 500          # per agent report
+MAX_REPORT_CONNS = 20_000   # per agent report
+
+
+def _short(value, limit):
+    """A string field from outside, refused (not cut) when too long, so junk can't pile up."""
+    value = str(value)
+    if len(value) > limit:
+        raise ValueError("field too long")
+    return value
+
+
+def _proto(value):
+    value = str(value).lower()
+    if value not in ("tcp", "udp"):
+        raise ValueError("protocol")
+    return value
+
+
+def _port(value):
+    value = int(value)
+    if not 0 <= value <= 65535:
+        raise ValueError("port")
+    return value
+
+
 class Store:
     def __init__(self, path):
         self._home_names, self._home_names_at = {}, 0.0
@@ -95,8 +122,9 @@ class Store:
     def add_lookups(self, rows):
         """rows: dicts with time, client, name, qtype, answers (list), upstream, blocked."""
         values = self._valid(rows, lambda r: (
-            utc(r["time"]), r["client"], r["name"].rstrip(".").lower(), r.get("qtype", ""),
-            json.dumps(r.get("answers") or []), r.get("upstream", ""), int(bool(r.get("blocked")))))
+            utc(r["time"]), _short(r["client"], MAX_CLIENT), _short(r["name"].rstrip(".").lower(), 253),
+            _short(r.get("qtype", ""), 16), json.dumps([str(a)[:64] for a in (r.get("answers") or [])][:32]),
+            _short(r.get("upstream", ""), 128), int(bool(r.get("blocked")))))
         with self.lock, self.db:
             return self.db.executemany("INSERT OR IGNORE INTO lookups VALUES (?,?,?,?,?,?,?)", values).rowcount
 
@@ -104,8 +132,8 @@ class Store:
         """rows: dicts with time, client, proto, dst, sport, dport, out_bytes, in_bytes
         (byte counts so far for that connection, as a connection table reports them)."""
         values = self._valid(rows, lambda r: (
-            utc(r["time"]), r["client"], r["proto"], r["dst"], int(r["sport"]), int(r["dport"]),
-            int(r.get("out_bytes", 0)), int(r.get("in_bytes", 0))))
+            utc(r["time"]), _short(r["client"], MAX_CLIENT), _proto(r["proto"]), str(ipaddress.ip_address(r["dst"])),
+            _port(r["sport"]), _port(r["dport"]), max(0, int(r.get("out_bytes", 0))), max(0, int(r.get("in_bytes", 0)))))
         with self.lock, self.db:
             return self.db.executemany("INSERT OR IGNORE INTO conns VALUES (?,?,?,?,?,?,?,?)", values).rowcount
 
@@ -117,14 +145,16 @@ class Store:
     def add_report(self, rep):
         """One agent report: its services, and their connections as clients svc:<host>/<service>."""
         host, when = str(rep["host"])[:80], utc(rep["time"])
-        ips = json.dumps([str(i) for i in rep.get("host_ips") or []][:32])
-        rows = [(service_id(host, s["name"]), host, str(s["name"])[:120], str(s.get("image", ""))[:200],
-                 json.dumps([str(p) for p in s.get("ports") or []][:50]), str(s.get("network", ""))[:40], ips, when)
-                for s in rep.get("services") or []]
+        ips = json.dumps([str(i)[:45] for i in rep.get("host_ips") or []][:32])
+        services = [s for s in (rep.get("services") or [])[:MAX_SERVICES] if isinstance(s, dict) and s.get("name")]
+        rows = [(service_id(host, str(s["name"])[:120]), host, str(s["name"])[:120], str(s.get("image", ""))[:200],
+                 json.dumps([str(p)[:20] for p in s.get("ports") or []][:50]), str(s.get("network", ""))[:40], ips, when)
+                for s in services]
         with self.lock, self.db:
             self.db.executemany("INSERT OR REPLACE INTO services VALUES (?,?,?,?,?,?,?,?)", rows)
-        return self.add_conns([{"time": rep["time"], **c, "client": service_id(host, c["service"])}
-                               for c in rep.get("conns") or [] if isinstance(c, dict) and c.get("service")])
+        conns = (rep.get("conns") or [])[:MAX_REPORT_CONNS]
+        return self.add_conns([{"time": rep["time"], **c, "client": service_id(host, str(c["service"])[:120])}
+                               for c in conns if isinstance(c, dict) and c.get("service")])
 
     def clear_data(self):
         """Forget everything seen (used when switching from the demo to a real source).

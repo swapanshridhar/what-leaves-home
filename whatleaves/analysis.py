@@ -6,10 +6,15 @@ Grading v0 is deliberately simple and always explained. Start at 100 and
 take points off for each reason; the reasons are shown next to the grade.
 """
 
+import re
 from datetime import datetime, timedelta, timezone
 
 from .enrich import company_for_site, flag, is_time_service, is_tracking, site
 from .store import is_private
+
+# A name from a device's lookups, safe to paste into a block list: letters, digits,
+# dots and hyphens only, so a crafted name can't add filter options to the rule.
+RULE_SAFE = re.compile(r"^(?=.{1,253}$)[a-z0-9-]+(\.[a-z0-9-]+)+$")
 
 PLAINTEXT_PORTS = {80: "web (HTTP)", 21: "FTP", 23: "Telnet", 554: "video (RTSP)"}
 
@@ -247,7 +252,8 @@ def actions_for(raw, comps, a):
                      "text": "Paste these rules into AdGuard Home under Filters → Custom filtering rules. "
                              "Blocking can switch off some free extras, such as recommendations or "
                              "personalised ads. If something stops working, remove the line.",
-                     "rules": [f"||{s}^" for s in sorted(tracking_sites, key=lambda s: -tracking_sites[s])]})
+                     "rules": [f"||{s}^" for s in sorted(tracking_sites, key=lambda s: -tracking_sites[s])
+                               if RULE_SAFE.match(s)]})
     elif already:
         acts.append({"level": "good", "title": "Already blocked",
                      "text": "Your AdGuard is already refusing its ad and tracking lookups: "

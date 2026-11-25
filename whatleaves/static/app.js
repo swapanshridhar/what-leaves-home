@@ -161,7 +161,7 @@ async function route() {
   try {
     if (!view) { setTab("overview"); main.innerHTML = renderOverview(await loadOverview()); wireCopy(); }
     else if (view === "devices") { setTab("devices"); if (arg) deviceFilter = arg; main.innerHTML = renderDevices(overviewCache || await loadOverview()); wireDevices(); }
-    else if (view === "services") { setTab("devices"); const [o, a] = await Promise.all([overviewCache || loadOverview(), api("/api/agent")]); overviewCache = o; main.innerHTML = renderServices(o, a); wireCopy(); wireQuiet(); }
+    else if (view === "services") { setTab("devices"); const [o, a] = await Promise.all([overviewCache || loadOverview(), api("/api/agent")]); overviewCache = o; main.innerHTML = renderServices(o, a); wireCopy(); wireQuiet(); wireRotate(); }
     else if (view === "device") { setTab("devices"); main.innerHTML = renderDevice(await api("/api/device?client=" + encodeURIComponent(decodeURIComponent(arg)))); wireDevice(); wireCopy(); }
     else if (view === "companies") { setTab("companies"); main.innerHTML = renderCompanies(overviewCache || await loadOverview()); }
     else if (view === "app") { setTab("app"); main.innerHTML = renderApp(await api("/api/app")); }
@@ -320,16 +320,30 @@ function serviceTile(d) {
     ${spark(d.activity)}
     <div class="foot"><span class="mono" style="font-size:11.5px">${esc(d.service.image || d.service.network || "")}</span><span>Last seen ${ago(d.last)}</span></div></a>`;
 }
+// The agent runs as root, so its code never comes over plain HTTP. Opened over HTTPS, this
+// app serves it; otherwise it comes from GitHub (installer) or the registry (image), pinned
+// to this version. The installer also checks the agent's SHA-256 before running it.
 function commands(ip, token) {
   const url = location.origin;
-  const docker = `docker run -d --name whatleaves-agent --restart unless-stopped --network host --pid host --cap-add SYS_PTRACE -v /var/run/docker.sock:/var/run/docker.sock:ro -e WL_URL=${url} -e WL_TOKEN=${token} python:3.12-alpine sh -c 'wget -qO /agent.py "$WL_URL/whatleaves-agent.py" && exec python /agent.py'`;
-  const install = `curl -fsSL ${url}/install-agent.sh | sudo WL_URL=${url} WL_TOKEN=${token} sh`;
+  const st = statusCache || {}, version = st.version || "", repo = st.repo || "";
+  const docker_caps = "--network host --pid host --cap-add SYS_PTRACE -v /var/run/docker.sock:/var/run/docker.sock:ro";
+  if (location.protocol === "https:") {
+    const docker = `docker run -d --name whatleaves-agent --restart unless-stopped ${docker_caps} -e WL_URL=${url} -e WL_TOKEN=${token} python:3.12-alpine python -c "import urllib.request as u; exec(u.urlopen('${url}/whatleaves-agent.py').read())"`;
+    const install = `curl -fsSL --proto '=https' ${url}/install-agent.sh | sudo WL_URL=${url} WL_TOKEN=${token} WL_AGENT_FROM=${url} sh`;
+    return { docker, install };
+  }
+  const raw = `https://raw.githubusercontent.com/${repo}/v${version}/whatleaves/static`;
+  const docker = `docker run -d --name whatleaves-agent --restart unless-stopped ${docker_caps} -e WL_URL=${url} -e WL_TOKEN=${token} ghcr.io/${repo}-agent:${version}`;
+  const install = `curl -fsSL --proto '=https' ${raw}/install-agent.sh | sudo WL_URL=${url} WL_TOKEN=${token} sh`;
   return { docker, install };
 }
 function cmdBlock(label, text, note) {
   return `<div class="cmd"><div class="cmdh"><span>${label}</span><button class="copy" data-copy="${esc(text)}">${ICON.copy} Copy</button></div><pre class="mono">${esc(text)}</pre>${note ? `<div class="muted" style="font-size:12.5px">${note}</div>` : ""}</div>`;
 }
 function setupPanel(a, empty) {
+  if (window.WL_DEMO) {
+    return `<h2>Set up services <small>one command per server</small></h2><div class="card pad setup"><p style="margin:0">On your own install, this shows one command per server, with your address and token filled in. The live demo shows none, because it has no server of its own for the agent to report to.</p></div>`;
+  }
   const c = commands("", a.token);
   const agents = a.agents.length ? `<p class="muted">Reporting now: ${a.agents.map((h) => `<b>${esc(h.host)}</b> (${plural(h.services, "service")}, ${ago(h.last_seen)})`).join(", ")}.</p>` : "";
   const sugg = a.suggestions.map((h) => `<div class="card pad sugg">
@@ -345,7 +359,8 @@ function setupPanel(a, empty) {
       ${agents}
       ${a.suggestions.length ? `<p><b>These machines look like servers:</b></p><div class="grid">${sugg}</div>` :
         `<p class="muted">No other machines look like servers yet${o_scan_hint()}. You can still add any machine:</p>${cmdBlock("With Docker", c.docker)}${cmdBlock("Or as a system service", c.install)}`}
-      <p class="muted" style="font-size:12.5px;margin-bottom:0">The commands contain your token: treat them like a password. The agent's code is at <a href="whatleaves-agent.py">whatleaves-agent.py</a>; the installer is <a href="install-agent.sh">install-agent.sh</a>.</p>
+      <p class="muted" style="font-size:12.5px;margin-bottom:0">The commands contain your token: treat them like a password. If one leaks, <button class="linkbtn" id="rotate">make a new token</button> and run the command again on each server. The agent's code is at <a href="whatleaves-agent.py">whatleaves-agent.py</a>; the installer is <a href="install-agent.sh">install-agent.sh</a>.</p>
+      <div class="msg" id="rotmsg"></div>
     </div>`;
 }
 function o_scan_hint() { return statusCache?.scan_hosts ? "" : " (turning on the scan, WL_SCAN_TARGETS, helps find them)"; }
@@ -363,6 +378,14 @@ function wireCopy() {
     catch (e) { const pre = b.closest(".cmd").querySelector("pre"); const r = document.createRange(); r.selectNodeContents(pre); getSelection().removeAllRanges(); getSelection().addRange(r); }
     b.innerHTML = `${ICON.check} Copied`; setTimeout(() => (b.innerHTML = `${ICON.copy} Copy`), 1800);
   }));
+}
+function wireRotate() {
+  $("#rotate")?.addEventListener("click", async () => {
+    if (!confirm("Make a new agent token? Agents using the old one stop reporting until you run the new command on each server.")) return;
+    const m = $("#rotmsg");
+    try { await api("/api/agent/rotate", {}); route(); }
+    catch (e) { m.className = "msg err"; m.textContent = e.message; }
+  });
 }
 function wireDevices() {
   fillDevices();
@@ -391,7 +414,7 @@ function renderDevice(d) {
         ${c.tracking ? '<span class="chip bad">ads or tracking</span>' : ""}${c.time ? '<span class="chip">time service</span>' : ""}
         ${c.company === d.maker ? '<span class="chip ok">maker</span>' : ""}
         <span class="bytes">${c.bytes_out ? `↑ ${bytes(c.bytes_out)} · ↓ ${bytes(c.bytes_in)}` : plural(c.lookups, "lookup")}</span></div>
-      <div class="meta">${c.countries.map((x) => x.flag + " " + x.code).join(", ") || (c.connections ? "Location unknown" : c.tracking ? "Looked up, never connected (blocked)" : "Looked up only, no connection seen")}${c.hosting.length ? ` · on ${esc(c.hosting.join(", "))}` : ""}${c.connections ? ` · ${plural(c.connections, "connection")}` : ""}</div>
+      <div class="meta">${c.countries.map((x) => x.flag + " " + esc(x.code)).join(", ") || (c.connections ? "Location unknown" : c.tracking ? "Looked up, never connected (blocked)" : "Looked up only, no connection seen")}${c.hosting.length ? ` · on ${esc(c.hosting.join(", "))}` : ""}${c.connections ? ` · ${plural(c.connections, "connection")}` : ""}</div>
       <div class="chips">${c.domains.slice(0, 6).map((x) => `<span class="chip mono">${esc(x.name)} · ${x.count}</span>`).join("")}${c.domains.length > 6 ? `<span class="chip">+${c.domains.length - 6} more</span>` : ""}</div>
       ${c.addresses.length ? `<details><summary>Addresses (${c.addresses.length})</summary><div class="chips" style="margin-top:8px">${c.addresses.map((a) => `<span class="chip mono">${esc(a)}</span>`).join("")}</div></details>` : ""}
     </div>`).join("");
@@ -704,16 +727,18 @@ function gate(mode) {
       <div class="brand"><img src="logo.svg" alt="" width="30" height="30"><span>What Leaves Home</span></div>
       <h1>${setup ? "Create your login" : "Sign in"}</h1>
       <p class="muted" style="margin:0 0 6px">${setup ? "This is the first visit, so choose the username and password for this page. You can change the password later in Settings." : "Use the login you created for this page."}</p>
+      ${setup ? `<label>Setup code<input name="code" inputmode="numeric" autocomplete="one-time-code" placeholder="1234-5678" required></label>
+      <p class="muted" style="margin:-4px 0 6px;font-size:12.5px">It's in the app's log, so only whoever installed it can create the login. With Docker: <span class="mono">docker logs whatleaves</span> (use the most recent code).</p>` : ""}
       <label>Username<input name="user" value="${setup ? "admin" : ""}" autocomplete="username" required></label>
       <label>Password<input type="password" name="password" autocomplete="${setup ? "new-password" : "current-password"}" ${setup ? 'minlength="8"' : ""} required></label>
       <button class="btn">${setup ? "Create login" : "Sign in"}</button><div class="msg err" id="gmsg"></div></form>`;
   $("#gform").addEventListener("submit", async (e) => {
     e.preventDefault();
     const f = new FormData(e.target);
-    try { await api(setup ? "/api/setup" : "/api/login", { user: f.get("user"), password: f.get("password") }); boot(); }
+    try { await api(setup ? "/api/setup" : "/api/login", { user: f.get("user"), password: f.get("password"), code: f.get("code") || "" }); boot(); }
     catch (err) { $("#gmsg").textContent = err.message; }
   });
-  $("input[name=" + (setup ? "password" : "user") + "]", g).focus();
+  $("input[name=" + (setup ? "code" : "user") + "]", g).focus();
 }
 
 async function boot() {

@@ -1,6 +1,7 @@
 import base64
 import glob
 import gzip
+import ipaddress
 import json
 import os
 import struct
@@ -380,7 +381,7 @@ class Web(unittest.TestCase):
         srv = HTTPServer(("127.0.0.1", 0), FakeAdGuard)
         threading.Thread(target=srv.serve_forever, daemon=True).start()
         try:
-            self.call("/api/setup", {"user": "admin", "password": "a good password"})
+            self.call("/api/setup", {"user": "admin", "password": "a good password", "code": self.app.auth.setup_code})
             self.status["configurable"] = True
             self.app.holder = SourceHolder(DemoSource())
             code, r = self.call("/api/connect/save", {"url": f"127.0.0.1:{srv.server_port}", "user": "u", "password": "p"})
@@ -400,8 +401,10 @@ class Web(unittest.TestCase):
         self.assertEqual(self.call("/api/device?client=192.168.1.21")[0], 401)
 
     def test_setup_then_use(self):
-        self.assertEqual(self.call("/api/setup", {"user": "admin", "password": "a good password"})[0], 200)
-        self.assertEqual(self.call("/api/setup", {"user": "x", "password": "another password"})[0], 409)
+        code = self.app.auth.setup_code
+        self.assertEqual(self.call("/api/setup", {"user": "admin", "password": "a good password", "code": "0000-0000"})[0], 403)
+        self.assertEqual(self.call("/api/setup", {"user": "admin", "password": "a good password", "code": code})[0], 200)
+        self.assertEqual(self.call("/api/setup", {"user": "x", "password": "another password", "code": code})[0], 409)
         status, o = self.call("/api/overview")
         self.assertEqual((status, o["counts"]["total"]), (200, 11))
         status, d = self.call("/api/device?client=192.168.1.21")
@@ -414,6 +417,113 @@ class Web(unittest.TestCase):
         self.assertIn("What Leaves Home", page)
         self.call("/api/logout", {})
         self.assertEqual(self.call("/api/session")[1]["auth"], "login")
+
+    def test_racing_setups_make_one_login(self):
+        code, results = self.app.auth.setup_code, []
+        def claim(i):
+            results.append(self.app.auth.create_first(f"user{i}", "a good password", code))
+        threads = [threading.Thread(target=claim, args=(i,)) for i in range(8)]
+        [t.start() for t in threads]
+        [t.join() for t in threads]
+        self.assertEqual(results.count(True), 1)
+        self.assertEqual(len(self.store.q("SELECT * FROM users")), 1)
+
+    def raw(self, request_bytes, timeout=5):
+        import socket
+        with socket.create_connection(("127.0.0.1", self.httpd.server_address[1]), timeout=timeout) as s:
+            s.sendall(request_bytes)
+            return s.recv(200).decode(errors="replace")
+
+    def test_bad_lengths_and_hosts_are_refused(self):
+        body = b'{"user":"a","password":"b"}'
+        neg = self.raw(b"POST /api/login HTTP/1.1\r\nHost: 127.0.0.1\r\nContent-Type: application/json\r\n"
+                       b"Content-Length: -1\r\n\r\n" + body)
+        self.assertIn(" 400 ", neg.splitlines()[0])
+        rebind = self.raw(b"GET /api/session HTTP/1.1\r\nHost: rebind.attacker.example\r\n\r\n")
+        self.assertIn(" 421 ", rebind.splitlines()[0])
+        for ok in ("raspberrypi:8080", "nas.local", "192.168.1.5:8080", "[::1]:8080", "localhost"):
+            self.assertIn(" 200 ", self.raw(f"GET /healthz HTTP/1.1\r\nHost: {ok}\r\n\r\n".encode()).splitlines()[0], ok)
+        self.app.allowed_hosts = ("whatleaves.example.org",)
+        self.assertIn(" 200 ", self.raw(b"GET /healthz HTTP/1.1\r\nHost: whatleaves.example.org\r\n\r\n").splitlines()[0])
+
+    def test_posts_from_other_sites_are_refused(self):
+        req = urllib.request.Request(self.base + "/api/login", data=b"{}", headers={
+            "Content-Type": "application/json", "Origin": "https://evil.example"})
+        with self.assertRaises(urllib.error.HTTPError) as e:
+            urllib.request.urlopen(req)
+        self.assertEqual(e.exception.code, 403)
+
+    def test_forwarded_for_is_ignored_unless_trusted(self):
+        from whatleaves.server import make_handler
+        Handler = make_handler(self.app)
+        h = Handler.__new__(Handler)
+        h.client_address, h.headers = ("192.168.1.9", 1), {"X-Forwarded-For": "10.9.9.9"}
+        self.assertEqual(h._remote(), "192.168.1.9")
+        self.app.trusted_proxies = [ipaddress.ip_network("192.168.1.9/32")]
+        self.assertEqual(h._remote(), "10.9.9.9")
+
+    def test_token_rotates(self):
+        self.call("/api/setup", {"user": "admin", "password": "a good password", "code": self.app.auth.setup_code})
+        code, r = self.call("/api/agent/rotate", {})
+        self.assertEqual(code, 200)
+        self.assertNotEqual(r["token"], "agent-token")
+        self.assertEqual(self.store.get_meta("ingest_token"), r["token"])
+
+
+class Agent(unittest.TestCase):
+    def test_installer_checksum_matches_the_agent(self):
+        import hashlib, re
+        from whatleaves import REPO, __version__
+        static = os.path.join(os.path.dirname(__file__), "..", "whatleaves", "static")
+        agent = hashlib.sha256(open(os.path.join(static, "whatleaves-agent.py"), "rb").read()).hexdigest()
+        sh = open(os.path.join(static, "install-agent.sh")).read()
+        self.assertEqual(re.search(r"AGENT_SHA256=(\w+)", sh).group(1), agent,
+                         "the agent changed: put its new sha256sum in install-agent.sh")
+        self.assertIn(f"AGENT_VERSION={__version__}\n", sh)
+        self.assertIn(f"githubusercontent.com/{REPO}/", sh)
+
+
+class Limits(unittest.TestCase):
+    def test_store_refuses_junk_rows(self):
+        store = Store(":memory:")
+        good = {"time": "2026-11-24T10:00:00Z", "client": "192.168.1.5", "proto": "tcp", "dst": "203.0.113.9",
+                "sport": 5000, "dport": 443}
+        bad = [dict(good, client="x" * 100_000), dict(good, dst="not-an-ip"), dict(good, proto="icmp"),
+               dict(good, dport=70000)]
+        self.assertEqual(store.add_conns([good] + bad), 1)
+
+    def test_block_rules_are_plain_domains(self):
+        from whatleaves.analysis import RULE_SAFE
+        self.assertTrue(RULE_SAFE.match("acr.viewing-data.example"))
+        for bad in ("x.example^$important", "a.example,b", "nodot", "ex ample.com"):
+            self.assertFalse(RULE_SAFE.match(bad), bad)
+
+    def test_scans_stay_in_home_ranges(self):
+        from whatleaves import scan
+        self.assertEqual(len(scan.targets("192.168.1.0/30")), 2)
+        for bad in ("100.64.0.0/24", "127.0.0.0/30", "224.0.0.0/30", "8.8.8.0/30"):
+            with self.assertRaises(ValueError):
+                scan.targets(bad)
+
+    def test_redirects_are_not_followed(self):
+        from whatleaves import net
+
+        class Redirect(BaseHTTPRequestHandler):
+            def do_GET(self):
+                self.send_response(302)
+                self.send_header("Location", "http://localhost:9/elsewhere")
+                self.end_headers()
+
+            def log_message(self, *a):
+                pass
+        srv = HTTPServer(("127.0.0.1", 0), Redirect)
+        threading.Thread(target=srv.serve_forever, daemon=True).start()
+        try:
+            with self.assertRaises(urllib.error.HTTPError) as e:
+                net.fetch(f"http://127.0.0.1:{srv.server_port}/", "test", headers={"Authorization": "Basic x"})
+            self.assertIn("redirected", str(e.exception))
+        finally:
+            srv.shutdown()
 
 
 if __name__ == "__main__":

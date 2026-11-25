@@ -330,3 +330,4 @@ h2 svg { vertical-align: -3px; color: var(--muted); }
 .pulse { flex: none; width: 14px; height: 14px; border-radius: 50%; background: var(--brand); animation: pulse 1.6s ease-in-out infinite; }
 @keyframes pulse { 0%, 100% { opacity: .35; transform: scale(.8); } 50% { opacity: 1; transform: scale(1.15); } }
 @media (prefers-reduced-motion: reduce) { .pulse { animation: none; } }
+.linkbtn { background: none; border: 0; padding: 0; font: inherit; color: var(--brand); cursor: pointer; text-decoration: underline; }

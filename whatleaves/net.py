@@ -34,6 +34,18 @@ def _is_local(host):
         return False
 
 
+class _NoRedirect(urllib.request.HTTPRedirectHandler):
+    """Redirects are not followed. Following one would carry the AdGuard or Pi-hole
+    login to another host, and would reach a place this record never names."""
+
+    def redirect_request(self, req, fp, code, msg, headers, newurl):
+        raise urllib.error.HTTPError(req.full_url, code, f"redirected to {newurl}; use that address instead",
+                                     headers, fp)
+
+
+_opener = urllib.request.build_opener(_NoRedirect)
+
+
 def fetch(url, purpose, headers=None, data=None, timeout=30):
     """GET (or POST with data) url; returns the body as bytes. Recorded either way."""
     host = urllib.parse.urlparse(url).hostname or ""
@@ -42,7 +54,7 @@ def fetch(url, purpose, headers=None, data=None, timeout=30):
            "local": _is_local(host), "bytes": 0, "status": ""}
     try:
         req = urllib.request.Request(url, data=data, headers={"User-Agent": USER_AGENT, **(headers or {})})
-        with urllib.request.urlopen(req, timeout=timeout) as r:
+        with _opener.open(req, timeout=timeout) as r:
             body = r.read()
             row.update(bytes=len(body), status=str(r.status))
             return body

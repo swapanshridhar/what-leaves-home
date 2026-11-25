@@ -15,7 +15,6 @@ from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timezone
 
 from . import net
-from .store import is_private
 
 PORTS = {
     22: "SSH", 53: "DNS", 80: "Web page", 443: "Web page (HTTPS)", 445: "File sharing (SMB)", 554: "Video stream (RTSP)",
@@ -27,6 +26,7 @@ PORTS = {
 }
 WEB_PORTS = {80, 3000, 3001, 5000, 5055, 7878, 8080, 8081, 8083, 8096, 8123, 8989, 9000, 9090, 9696}
 MAX_HOSTS = 1024
+HOME_RANGES = [ipaddress.ip_network(n) for n in ("10.0.0.0/8", "172.16.0.0/12", "192.168.0.0/16")]
 
 
 def targets(spec):
@@ -34,8 +34,8 @@ def targets(spec):
     hosts = []
     for part in filter(None, (p.strip() for p in spec.split(","))):
         net_ = ipaddress.ip_network(part, strict=False)
-        if net_.version != 4 or not is_private(str(net_.network_address)) or not is_private(str(net_.broadcast_address)):
-            raise ValueError(f"{part}: only private IPv4 ranges at home can be scanned")
+        if net_.version != 4 or not any(net_.subnet_of(home) for home in HOME_RANGES):
+            raise ValueError(f"{part}: only home ranges (10.x, 172.16-31.x, 192.168.x) can be scanned")
         if len(hosts) + net_.num_addresses > MAX_HOSTS + 2:  # check before listing: 10.0.0.0/8 is 16 million
             raise ValueError(f"{part}: scan at most {MAX_HOSTS} addresses (a /22) in all")
         hosts += [str(h) for h in (net_.hosts() if net_.num_addresses > 2 else net_)]

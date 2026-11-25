@@ -1,0 +1,8 @@
+# The What Leaves Home agent as an image, so a server runs a pinned, published copy
+# instead of fetching code at start. Run with the docker line on the Services page.
+FROM python:3.12-alpine
+LABEL org.opencontainers.image.title="What Leaves Home agent" \
+      org.opencontainers.image.description="Reports which program or container opened each connection on this server" \
+      org.opencontainers.image.licenses="Apache-2.0"
+COPY whatleaves/static/whatleaves-agent.py /agent/whatleaves-agent.py
+ENTRYPOINT ["python", "/agent/whatleaves-agent.py"]

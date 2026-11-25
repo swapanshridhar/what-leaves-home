@@ -13,7 +13,11 @@
   WL_CLIENTS            only these client addresses, comma-separated
   WL_NAMES              friendly names: 192.168.1.20=TV,192.168.1.21=Speaker
   WL_USER, WL_PASSWORD  set the login in advance (otherwise the first visitor sets it)
-  WL_AUTH=off           no login, for setups behind their own sign-in
+  WL_AUTH=off           no login, for setups behind their own sign-in (then publish the port
+                        on 127.0.0.1 only, so the sign-in can't be walked around)
+  WL_ALLOWED_HOSTS      names you open the page by, if not an address, a single word
+                        (raspberrypi) or .local/.lan/.home.arpa: whatleaves.example.org
+  WL_TRUSTED_PROXIES    your reverse proxy's address, so its X-Forwarded-For is believed
   WL_OFFLINE=1          never contact the internet (no ownership list)
   WL_INGEST_TOKEN       the token agents send (otherwise made once and shown in Settings)
   WL_SCAN_TARGETS       optional: private ranges to scan daily for listening services
@@ -33,7 +37,7 @@ from datetime import datetime, timezone
 
 import secrets
 
-from . import __version__, net, scan
+from . import REPO, __version__, net, scan
 from .auth import Auth
 from .enrich import Owners
 from .server import App, serve
@@ -80,10 +84,15 @@ def parse_names(text):
 
 
 def main():
+    # The database holds the login, the agent token and any saved AdGuard password:
+    # files this app creates are readable by this user only.
+    os.umask(0o077)
     db = env("WL_DB", os.path.join("data", "whatleaves.db"))
     folder = os.path.dirname(db) or "."
     os.makedirs(folder, exist_ok=True)
     store = Store(db)
+    if os.path.exists(db):
+        os.chmod(db, 0o600)  # also for a database made by an older version
     net.set_recorder(store.add_own_call)
     log_source = None
     if env("WL_ADGUARD_LOG"):
@@ -113,7 +122,7 @@ def main():
         scanning = scan.start(store, env("WL_SCAN_TARGETS"))
     holder = SourceHolder(source)
     saved = json.loads(store.get_meta("adguard_config", "{}") or "{}")
-    status = {"version": __version__, "source": source.kind, "keep_days": keep_days, "poll_seconds": every,
+    status = {"version": __version__, "repo": REPO, "source": source.kind, "keep_days": keep_days, "poll_seconds": every,
               "offline": offline, "auth": auth.enabled, "scan_hosts": scanning, "last_poll": None, "last_error": None,
               # The setup page may connect AdGuard only when no environment setting chose the source.
               "configurable": not configured_by_env(),
@@ -139,12 +148,20 @@ def main():
 
     threading.Thread(target=poll_forever, daemon=True).start()
     host, port = env("WL_HOST", "0.0.0.0"), int(env("WL_PORT", "8080"))
-    app = App(store, status, auth, owners, DemoSource.SITE_NAMES if source.kind.startswith("demo") else None, token)
+    split = lambda name: [p.strip() for p in env(name).split(",") if p.strip()]
+    app = App(store, status, auth, owners, DemoSource.SITE_NAMES if source.kind.startswith("demo") else None, token,
+              allowed_hosts=split("WL_ALLOWED_HOSTS"), trusted_proxies=split("WL_TRUSTED_PROXIES"),
+              token_fixed=bool(env("WL_INGEST_TOKEN")))
     app.holder, app.wake = holder, wake
     httpd = serve(app, host, port)
     login = "off" if not auth.enabled else ("open the page to create it" if auth.needs_setup() else "set")
     print(f"What Leaves Home {__version__}: source {source.kind}, login {login}, "
           f"listening on http://{host}:{port}", flush=True)
+    if auth.needs_setup():
+        print(f"Setup code for the first visit: {auth.setup_code}", flush=True)
+    if not auth.enabled:
+        print("Login is off (WL_AUTH=off). Anyone who can reach this port sees everything: publish it on "
+              "127.0.0.1 only, behind your own sign-in.", flush=True)
     try:
         httpd.serve_forever()
     except KeyboardInterrupt:

@@ -2,8 +2,11 @@
 
 import hmac
 import http.cookies
+import ipaddress
 import json
 import os
+import secrets
+import threading
 import urllib.parse
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
@@ -22,20 +25,50 @@ FILES = {"/": ("index.html", "text/html; charset=utf-8"),
 OPEN_API = {"/api/session", "/api/setup", "/api/login"}
 MAX_BODY = 65536
 MAX_INGEST = 8 * 1024 * 1024  # one agent report
+MAX_CONNECTIONS = 64          # requests handled at once; more wait for the OS backlog
+TIMEOUT = 20                  # seconds a client may take to send its request
+# Names a home network uses for its own machines. A web page elsewhere can point
+# its own domain at this machine (DNS rebinding), but it can't use these.
+HOME_SUFFIXES = (".local", ".lan", ".home", ".home.arpa", ".internal", ".localdomain", ".localhost")
+
+
+def host_allowed(host_header, extra=()):
+    """Is the Host header one this app should answer to? IP addresses, localhost,
+    single-label names (raspberrypi), home suffixes, and WL_ALLOWED_HOSTS."""
+    h = (host_header or "").strip().lower()
+    if h.startswith("["):
+        h = h[1:h.find("]")] if "]" in h else ""
+    elif h.count(":") == 1:
+        h = h.split(":")[0]
+    h = h.rstrip(".")
+    if not h:
+        return False
+    try:
+        ipaddress.ip_address(h)
+        return True
+    except ValueError:
+        pass
+    if h == "localhost" or "." not in h or h.endswith(HOME_SUFFIXES):
+        return True
+    return any(h == a or (a.startswith(".") and h.endswith(a)) for a in extra)
 
 
 class App:
     """Everything a request handler needs."""
 
-    def __init__(self, store, status, auth, owners=None, site_names=None, ingest_token=""):
+    def __init__(self, store, status, auth, owners=None, site_names=None, ingest_token="",
+                 allowed_hosts=(), trusted_proxies=(), token_fixed=False):
         self.store, self.status, self.auth, self.owners, self.site_names = store, status, auth, owners, site_names
-        self.ingest_token = ingest_token
+        self.ingest_token, self.token_fixed = ingest_token, token_fixed
+        self.allowed_hosts = tuple(h.strip().lower() for h in allowed_hosts if h.strip())
+        self.trusted_proxies = [ipaddress.ip_network(p.strip(), strict=False) for p in trusted_proxies if p.strip()]
         self.holder, self.wake = None, None  # set by __main__: the running source, and a poke to poll now
 
 
 def make_handler(app):
     class Handler(BaseHTTPRequestHandler):
         server_version = "WhatLeavesHome"
+        timeout = TIMEOUT  # a client that stops sending mid-request is dropped
 
         def log_message(self, *args):
             pass  # no access log: the page itself is about privacy
@@ -72,16 +105,46 @@ def make_handler(app):
             if self.headers.get("Content-Type", "").split(";")[0] != "application/json":
                 raise ValueError("JSON only")  # also stops cross-site form posts
             n = int(self.headers.get("Content-Length") or 0)
-            if n > limit:
-                raise ValueError("too large")
+            if n < 0 or n > limit:
+                raise ValueError("bad length")
             return json.loads(self.rfile.read(n) or b"{}")
 
         def _remote(self):
-            return self.headers.get("X-Forwarded-For", "").split(",")[0].strip() or self.client_address[0]
+            """The client's address. X-Forwarded-For only counts when it comes from a
+            proxy listed in WL_TRUSTED_PROXIES; anyone else could write anything there."""
+            peer = self.client_address[0]
+            try:
+                trusted = any(ipaddress.ip_address(peer) in n for n in app.trusted_proxies)
+            except ValueError:
+                trusted = False
+            if trusted:
+                hops = [h.strip() for h in self.headers.get("X-Forwarded-For", "").split(",") if h.strip()]
+                if hops:
+                    return hops[-1]  # the one the trusted proxy added
+            return peer
+
+        def _refuse_host(self):
+            """True (and answered) if this request's Host isn't one we serve."""
+            if host_allowed(self.headers.get("Host", ""), app.allowed_hosts):
+                return False
+            msg = ("What Leaves Home doesn't answer to this address. If you opened it by a name "
+                   "of your own, add that name to WL_ALLOWED_HOSTS.\n")
+            self._send(421, msg.encode(), "text/plain; charset=utf-8")
+            return True
+
+        def _cross_origin(self):
+            """A POST whose Origin isn't this page. Browsers send Origin on POSTs."""
+            origin = self.headers.get("Origin")
+            if not origin:
+                return False
+            mine = {self.headers.get(h, "").lower() for h in ("Host", "X-Forwarded-Host")} - {""}
+            return urllib.parse.urlparse(origin).netloc.lower() not in mine
 
         # ----- GET
 
         def do_GET(self):
+            if self._refuse_host():
+                return
             url = urllib.parse.urlparse(self.path)
             q = urllib.parse.parse_qs(url.query)
             if url.path in FILES:
@@ -107,8 +170,8 @@ def make_handler(app):
             if url.path == "/api/device" and q.get("client"):
                 return self._json(analysis.device_view(s, o, q["client"][0], n, router=analysis.router_client(s)))
             if url.path == "/api/agent":
-                return self._json({"token": app.ingest_token, "agents": agent_summary(s),
-                                   "suggestions": analysis.suggest_hosts(s)})
+                return self._json({"token": app.ingest_token, "token_fixed": app.token_fixed,
+                                   "agents": agent_summary(s), "suggestions": analysis.suggest_hosts(s)})
             if url.path == "/api/app":
                 return self._json({"status": app.status, "summary": s.own_call_summary(), "calls": s.own_calls(200),
                                    "owners": {"enabled": bool(o and o.enabled), "ready": bool(o and o.ready),
@@ -127,9 +190,13 @@ def make_handler(app):
         # ----- POST
 
         def do_POST(self):
+            if self._refuse_host():
+                return
             path = urllib.parse.urlparse(self.path).path
             if path == "/api/ingest":
                 return self._ingest()
+            if self._cross_origin():
+                return self._json({"error": "this request came from another site"}, 403)
             try:
                 body = self._body()
             except ValueError:
@@ -138,9 +205,14 @@ def make_handler(app):
                 if not app.auth.needs_setup():
                     return self._json({"error": "already set up"}, 409)
                 try:
-                    app.auth.set_login(body.get("user", ""), body.get("password", ""))
+                    created = app.auth.create_first(str(body.get("user", "")), str(body.get("password", "")),
+                                                    str(body.get("code", "")))
+                except PermissionError as e:
+                    return self._json({"error": str(e)}, 403)
                 except ValueError as e:
                     return self._json({"error": str(e)}, 400)
+                if not created:
+                    return self._json({"error": "already set up"}, 409)
                 return self._json({"ok": True}, cookie=self._cookie(app.auth.new_session(app.auth.username())))
             if path == "/api/login":
                 token = app.auth.login(body.get("user", ""), body.get("password", ""), self._remote())
@@ -160,6 +232,12 @@ def make_handler(app):
                 except ValueError as e:
                     return self._json({"error": str(e)}, 400)
                 return self._json({"ok": True}, cookie=self._cookie(app.auth.new_session(app.auth.username())))
+            if path == "/api/agent/rotate":
+                if app.token_fixed:
+                    return self._json({"error": "The token is set by WL_INGEST_TOKEN, so change it there."}, 409)
+                app.ingest_token = secrets.token_urlsafe(32)
+                app.store.set_meta("ingest_token", app.ingest_token)
+                return self._json({"ok": True, "token": app.ingest_token})
             if path in ("/api/connect/test", "/api/connect/save"):
                 return self._connect(body, save=path.endswith("save"))
             if path == "/api/wizard":
@@ -225,7 +303,30 @@ def agent_summary(store):
     return sorted(hosts.values(), key=lambda h: h["host"])
 
 
+class BoundedServer(ThreadingHTTPServer):
+    """At most MAX_CONNECTIONS requests at once, so a flood can't start unlimited threads."""
+    daemon_threads = True
+
+    def __init__(self, *args, **kwargs):
+        self.slots = threading.BoundedSemaphore(MAX_CONNECTIONS)
+        super().__init__(*args, **kwargs)
+
+    def process_request(self, request, client_address):
+        if not self.slots.acquire(timeout=TIMEOUT):
+            self.shutdown_request(request)
+            return
+        try:
+            super().process_request(request, client_address)
+        except Exception:
+            self.slots.release()
+            raise
+
+    def process_request_thread(self, request, client_address):
+        try:
+            super().process_request_thread(request, client_address)
+        finally:
+            self.slots.release()
+
+
 def serve(app, host, port):
-    httpd = ThreadingHTTPServer((host, port), make_handler(app))
-    httpd.daemon_threads = True
-    return httpd
+    return BoundedServer((host, port), make_handler(app))

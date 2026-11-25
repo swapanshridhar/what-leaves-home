@@ -2,7 +2,7 @@
 
 What Leaves Home shows what each device, and each app on your home servers, talks to on the internet: which companies, from which countries, how much data, and whether any of it is ads or tracking. It works on top of the AdGuard Home or Pi-hole you already run, changes nothing on your network, and keeps everything on your own machine.
 
-Status: early (0.7). Grades are a first version: simple rules, always shown with their reasons.
+Status: early (0.8). Grades are a first version: simple rules, always shown with their reasons.
 
 <picture>
   <source media="(prefers-color-scheme: dark)" srcset="docs/screenshots/overview-dark.png">
@@ -42,7 +42,7 @@ cd what-leaves-home
 docker compose up -d
 ```
 
-Open `http://<that machine's address>:8080`. The first visit asks you to create the login for the page (there is no default password), then a short guide asks how you want to start: connect your AdGuard Home, or look around the demo first. Either way it ends with **"Point one device here"**: the address to enter and the steps for your phone, laptop or TV, and it shows that device as soon as its first lookups arrive.
+Open `http://<that machine's address>:8080`. The first visit asks you to create the login for the page. There is no default password; instead it asks for a one-time setup code, which you get with `docker logs whatleaves`, so nobody else on your network can claim the page before you do. Then a short guide asks how you want to start: connect your AdGuard Home, or look around the demo first. Either way it ends with **"Point one device here"**: the address to enter and the steps for your phone, laptop or TV, and it shows that device as soon as its first lookups arrive.
 
 ## The goal: every device on its own line
 
@@ -112,8 +112,10 @@ All settings are environment variables, in `.env` when using Docker.
 | `WL_DEMO` | `1` shows demo devices | on when nothing else is set |
 | `WL_NAMES` | Friendly names, like `192.168.1.20=Living room TV,192.168.1.21=Speaker` | names AdGuard knows |
 | `WL_CLIENTS` | Only these addresses, comma-separated | all |
-| `WL_USER`, `WL_PASSWORD` | Set the login in advance | the first visitor creates it |
-| `WL_AUTH` | `off` turns the login off (only behind your own sign-in) | on |
+| `WL_USER`, `WL_PASSWORD` | Set the login in advance | created on the first visit, with the setup code from the log |
+| `WL_AUTH` | `off` turns the login off (only behind your own sign-in; see Login) | on |
+| `WL_ALLOWED_HOSTS` | Names you open the page by, if not an IP address, a one-word name (`raspberrypi`) or a `.local`, `.lan` or `.home.arpa` name. For example `whatleaves.example.org` | |
+| `WL_TRUSTED_PROXIES` | Your reverse proxy's address, so the visitor address it passes on is believed | |
 | `WL_OFFLINE` | `1`: never contact the internet (no ownership list) | off |
 | `WL_INGEST_TOKEN` | The token agents send | made once, shown on the Services page |
 | `WL_SCAN_TARGETS` | Private ranges to scan daily for listening services | off |
@@ -153,20 +155,25 @@ Names like `cloud.lgthinq.com` are matched to companies from a built-in list. Ad
 Every app on one server shares its address, so the DNS log alone can't tell Jellyfin from Home Assistant. A small agent fixes that. Open **Devices & services → Services**: it suggests which machines look like servers, with the evidence (what's listening there, whether it downloads container images, which service sites it looks up), and shows one command to run on each, with your address and token filled in:
 
 ```bash
-# With Docker
+# With Docker: the published agent image, pinned to this version
 docker run -d --name whatleaves-agent --restart unless-stopped --network host --pid host --cap-add SYS_PTRACE \
   -v /var/run/docker.sock:/var/run/docker.sock:ro -e WL_URL=http://<this app> -e WL_TOKEN=<token> \
-  python:3.12-alpine sh -c 'wget -qO /agent.py "$WL_URL/whatleaves-agent.py" && exec python /agent.py'
+  ghcr.io/swapanshridhar/what-leaves-home-agent:0.8.0
 
 # Or as a system service (needs python3)
-curl -fsSL http://<this app>/install-agent.sh | sudo WL_URL=http://<this app> WL_TOKEN=<token> sh
+curl -fsSL --proto '=https' https://raw.githubusercontent.com/swapanshridhar/what-leaves-home/v0.8.0/whatleaves/static/install-agent.sh \
+  | sudo WL_URL=http://<this app> WL_TOKEN=<token> sh
 ```
 
-The agent reads the server's connection table and which program or container opened each connection, and sends that here every 5 minutes. It changes nothing; the system-service installer only turns on the kernel's per-connection byte counts and says so. Its code is one file, served by the app at `/whatleaves-agent.py`.
+The agent reads the server's connection table and which program or container opened each connection, and sends that here every 5 minutes. It changes nothing; the system-service installer only turns on the kernel's per-connection byte counts and says so. Its code is one file, [whatleaves-agent.py](whatleaves/static/whatleaves-agent.py).
+
+The agent runs as root, so its code never comes over plain HTTP. The installer comes from GitHub over HTTPS, pinned to a release. It runs the agent only if its SHA-256 matches the one written in the installer. The system service keeps only the permissions it needs to read connections. If you open What Leaves Home over HTTPS (behind your own reverse proxy), the commands fetch from it instead, with the same check. The token in the commands works like a password: if it leaks, make a new one on the Services page.
+
+On a server whose kernel has no `/proc/net/nf_conntrack` (Raspberry Pi OS, for one), use the system service: it installs the `conntrack` tool, which the Docker image leaves out.
 
 ### Finding services by scanning (optional, off by default)
 
-Set `WL_SCAN_TARGETS=192.168.1.0/24` and the app checks once a day for services listening on common ports, and reads their page titles. Only private ranges up to 1024 addresses are accepted, and each scan is listed on the This app tab.
+Set `WL_SCAN_TARGETS=192.168.1.0/24` and the app checks once a day for services listening on common ports, and reads their page titles. Only home ranges (10.x, 172.16–31.x, 192.168.x) up to 1024 addresses are accepted, and each scan is listed on the This app tab.
 
 ## Privacy
 
@@ -180,7 +187,11 @@ DNS logs are a record of what people and devices do. What Leaves Home:
 
 ### Login
 
-The first person to open the page creates the login, the way Home Assistant and Uptime Kuma do. Set it in advance with `WL_USER` and `WL_PASSWORD` instead, if you prefer. Change the password under Settings. If something in front of it already handles sign-in (a reverse proxy with SSO), turn the login off with `WL_AUTH=off`. Either way, don't expose it to the internet.
+The first visit creates the login. It asks for a one-time setup code that the app prints to its log (`docker logs whatleaves`), so only whoever installed it can create the login, not some other device on the network that gets there first. Set the login in advance with `WL_USER` and `WL_PASSWORD` instead, if you prefer. Change the password under Settings. Don't expose it to the internet.
+
+Behind a reverse proxy, add the name you open it by to `WL_ALLOWED_HOSTS`. The page only answers to addresses, one-word names and home names (`.local`, `.lan`, `.home.arpa`) by default, so a web page elsewhere can't reach it by pointing its own domain at your network. If the proxy already handles sign-in (with SSO), you can turn the login off with `WL_AUTH=off`. Then publish the port on `127.0.0.1` only (`"127.0.0.1:8080:8080"` in compose.yaml), so nobody can go around the proxy to reach it.
+
+The database holds the login, the agent token and any AdGuard or Pi-hole password saved from the page, and only the app's own user can read it.
 
 If you only care about appliances, set `WL_CLIENTS` so it never stores phones' and laptops' lookups.
 
