@@ -545,6 +545,20 @@ class Chains(unittest.TestCase):
         self.assertFalse(comps[0]["tracking"])
 
 
+    def test_named_maker_and_streaming_is_not_uploading(self):
+        conn = lambda name, out, inn: {"local": False, "names": [name], "dport": 443, "proto": "tcp", "dst": "203.0.113.9",
+                                       "bytes_out": out, "bytes_in": inn, "connections": 1,
+                                       "first": "2026-11-25T10:00:00Z", "last": "2026-11-26T10:00:00Z"}
+        raw = {"name": "Samsung TV", "lookups": [],
+               "connections": [conn("video.streamco.example", 300_000_000, 9_000_000_000), conn("api.samsung.com", 100_000, 200_000)]}
+        comps = analysis.companies_for(raw, None)
+        a = analysis.assess(raw, comps)
+        self.assertEqual(a["maker"], "Samsung")
+        self.assertNotIn("Uploads", " ".join(r["text"] for r in a["reasons"]))
+        camera = {"name": "Porch camera", "lookups": [], "connections": [conn("clips.camco.example", 2_000_000_000, 50_000_000)]}
+        self.assertIn("Uploads", " ".join(r["text"] for r in analysis.assess(camera, analysis.companies_for(camera, None))["reasons"]))
+
+
 class Limits(unittest.TestCase):
     def test_store_refuses_junk_rows(self):
         store = Store(":memory:")

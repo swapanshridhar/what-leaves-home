@@ -206,6 +206,19 @@ def companies_for(raw, owners, site_names=None):
     return sorted(out, key=lambda e: -(e["bytes_out"] + e["bytes_in"] + e["lookups"] * 200))
 
 
+UPLOAD_SHARE = 0.25  # out/in above this is real uploading; streaming sends a few percent back as acknowledgements
+
+
+def _maker_hint(comps, name):
+    """The company whose name the device is called by ("Samsung TV" -> Samsung), if any."""
+    words = {w for w in re.split(r"[^a-z0-9]+", (name or "").lower()) if len(w) >= 2}
+    for c in comps:
+        first = re.split(r"[^a-z0-9]+", c["company"].lower())[0]
+        if first and first in words:
+            return c
+    return None
+
+
 def assess(raw, comps, server=False):
     """Score, grade, verdict and the reasons, good and bad. A server (a machine whose services
     report through an agent) isn't marked down for talking to many companies: its services are."""
@@ -218,6 +231,10 @@ def assess(raw, comps, server=False):
     # first company that isn't a platform; platforms it also reaches aren't counted as others.
     own = [c for c in makers if c["company"] not in CLOUD_PLATFORMS]
     makers = own + [c for c in makers if c not in own] if own else makers
+    # A TV's biggest company by data is whatever it streams; the name it goes by is a better guide.
+    hint = _maker_hint(makers, raw.get("name"))
+    if hint:
+        makers = [hint] + [c for c in makers if c is not hint]
     maker = makers[0]["company"] if makers else ""
     others = [c for c in makers[1:] if not (own and c["company"] in CLOUD_PLATFORMS)]
     bypass = outside_dns(raw)
@@ -227,6 +244,8 @@ def assess(raw, comps, server=False):
     remote = [c for c in raw["connections"] if not c["local"]]
     days = _span_days(min((c["first"] for c in remote), default=None), max((c["last"] for c in remote), default=None))
     per_day = sum(c["bytes_out"] for c in remote) / days
+    in_day = sum(c["bytes_in"] for c in remote) / days
+    uploading = per_day > UPLOAD_SHARE * in_day  # not just acknowledging a download
 
     if tracking:
         n = sum(c["through"] for c in tracking)
@@ -261,10 +280,10 @@ def assess(raw, comps, server=False):
         reasons.append({"level": "warn", "text": f"Connected to {len(unexplained)} "
                         f"address{'' if len(unexplained) == 1 else 'es'} it never looked up "
                         "(a fixed address, or a lookup older than the data kept)"})
-    if per_day > 1e9:
+    if per_day > 1e9 and uploading:
         score -= 20
         reasons.append({"level": "bad", "text": f"Uploads about {human_bytes(per_day)} a day"})
-    elif per_day > 1e8:
+    elif per_day > 1e8 and uploading:
         score -= 10
         reasons.append({"level": "warn", "text": f"Uploads about {human_bytes(per_day)} a day"})
 
@@ -281,7 +300,7 @@ def assess(raw, comps, server=False):
         if score >= floor:
             break
     return {"score": max(score, 0), "grade": grade, "verdict": verdict, "label": label,
-            "maker": maker, "reasons": reasons, "per_day_out": per_day}
+            "maker": maker, "reasons": reasons, "per_day_out": per_day, "uploading": uploading}
 
 
 def actions_for(raw, comps, a):
@@ -319,7 +338,7 @@ def actions_for(raw, comps, a):
                              "never show up here. Many TVs and streaming sticks do this. On your router, block "
                              "outgoing DNS (ports 53 and 853) for this device: it then falls back to your filter. "
                              "If your router can't, AdGuard Home can't fix it alone.", "rules": []})
-    if a["per_day_out"] > 1e8:
+    if a["per_day_out"] > 1e8 and a.get("uploading", True):
         acts.append({"level": "warn", "title": "Check its cloud settings",
                      "text": f"It uploads about {human_bytes(a['per_day_out'])} a day. Cameras and vacuums do this "
                              "when cloud recording, backup or maps are on. Turn those off in its app if you "
