@@ -1,6 +1,18 @@
-# What Leaves Home
+<p align="center">
+  <img src="whatleaves/static/logo.svg" width="96" height="96" alt="">
+</p>
 
-**See what every device in your home sends out.**
+<h1 align="center">What Leaves Home</h1>
+
+<p align="center"><strong>See what every device in your home sends out.</strong></p>
+
+<p align="center">
+  <a href="https://github.com/swapanshridhar/what-leaves-home/actions/workflows/image.yml"><img alt="Tests and images" src="https://github.com/swapanshridhar/what-leaves-home/actions/workflows/image.yml/badge.svg"></a>
+  <a href="https://github.com/swapanshridhar/what-leaves-home/actions/workflows/pages.yml"><img alt="Live demo" src="https://github.com/swapanshridhar/what-leaves-home/actions/workflows/pages.yml/badge.svg"></a>
+  <a href="https://github.com/swapanshridhar/what-leaves-home/releases/latest"><img alt="Latest release" src="https://img.shields.io/github/v/release/swapanshridhar/what-leaves-home?label=release"></a>
+  <a href="LICENSE"><img alt="Licence: Apache 2.0" src="https://img.shields.io/badge/licence-Apache%202.0-blue"></a>
+  <a href="#privacy"><img alt="Telemetry: none" src="https://img.shields.io/badge/telemetry-none-brightgreen"></a>
+</p>
 
 What Leaves Home shows what each device, and each app on your home servers, talks to on the internet: which companies, from which countries, how much data, and whether any of it is ads or tracking. It works on top of the AdGuard Home or Pi-hole you already run, changes nothing on your network, and keeps everything on your own machine.
 

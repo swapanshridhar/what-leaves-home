@@ -1,7 +1,7 @@
 # Build and publish the container images to GitHub's registry on every version tag (v0.8.0)
 # and on main: the app (ghcr.io/<owner>/<repo>) and the agent (ghcr.io/<owner>/<repo>-agent).
 # Multi-arch, so they run on a Raspberry Pi too. Actions are pinned to commits.
-name: image
+name: tests and images
 on:
   push:
     branches: [main]
