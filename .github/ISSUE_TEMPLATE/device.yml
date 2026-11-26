@@ -1,0 +1,41 @@
+name: A device looks wrong
+description: A grade, a company or a finding that doesn't match what the device really does.
+labels: [device]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        This is how the grades get better. Please hide anything private in screenshots: people's names, and device names that say whose they are.
+  - type: input
+    id: device
+    attributes:
+      label: The device
+      description: The kind, and the make and model if you know it.
+      placeholder: "Smart TV, Samsung QN90B"
+    validations:
+      required: true
+  - type: input
+    id: grade
+    attributes:
+      label: The grade it got, and the reasons it gives
+      placeholder: "D: looked up ad or tracking services 120 times"
+    validations:
+      required: true
+  - type: textarea
+    id: wrong
+    attributes:
+      label: What looks wrong
+      description: A company that isn't the right one, a finding that isn't true, a grade that's too harsh or too kind. Say why you think so.
+    validations:
+      required: true
+  - type: textarea
+    id: names
+    attributes:
+      label: The names or addresses involved
+      description: From the device page's Technical details, if one name or address is the problem.
+      render: text
+  - type: textarea
+    id: screenshot
+    attributes:
+      label: A screenshot of the device page (optional)
+      description: Drag it in here. Hide anything private first.

@@ -1,0 +1,45 @@
+name: Something's broken
+description: It doesn't install, start, connect or show what it should.
+labels: [bug]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for reporting it. Please leave out anything private: your network's addresses are fine, but not passwords, tokens or the names of people.
+  - type: textarea
+    id: what
+    attributes:
+      label: What happened
+      description: What you did, what you expected, and what you saw instead.
+    validations:
+      required: true
+  - type: dropdown
+    id: install
+    attributes:
+      label: How it's installed
+      options:
+        - On a laptop (compose.laptop.yaml)
+        - With my AdGuard Home (compose.yaml)
+        - With my Pi-hole 6 (compose.yaml)
+        - With AdGuard Home installed alongside (compose.with-adguard.yaml)
+        - Without Docker (python3 -m whatleaves)
+        - Something else
+    validations:
+      required: true
+  - type: input
+    id: version
+    attributes:
+      label: Version
+      description: At the bottom of the page, or the first line of `docker logs whatleaves`.
+      placeholder: "0.8.0"
+  - type: input
+    id: machine
+    attributes:
+      label: The machine it runs on
+      placeholder: "Raspberry Pi 4 with Raspberry Pi OS, Synology NAS, Mac with Docker Desktop…"
+  - type: textarea
+    id: logs
+    attributes:
+      label: The last lines of the log
+      description: "`docker logs --tail 50 whatleaves`. Check there's no password or token in them first."
+      render: text
