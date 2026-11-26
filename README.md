@@ -32,14 +32,14 @@ There are good tools near this space. What Leaves Home is built to be the layer 
 - **Self-hosted apps, not just gadgets.** Per-service visibility on your own servers is the part people usually piece together from command-line tools. Here it's one command per server and a page per app.
 - **Honest about limits.** DNS-based tools can't see devices that use hard-coded or encrypted DNS, or devices hidden behind a router that answers DNS for everyone. The app says when that's happening, and the agent's connection data fills some of the gap.
 
-**Try the live demo in your browser:** made-up devices, nothing to install. The link appears here once the project is published (it's built from `tools/build_demo.py` by `.github/workflows/pages.yml`).
+**Try the live demo in your browser:** [swapanshridhar.github.io/what-leaves-home](https://swapanshridhar.github.io/what-leaves-home/). Made-up devices, nothing to install.
 
 ## Try it in two minutes
 
 You need Docker. On any always-on machine on your network (a Raspberry Pi, a NAS, an old PC):
 
 ```bash
-git clone <this repository's URL> what-leaves-home
+git clone https://github.com/swapanshridhar/what-leaves-home.git
 cd what-leaves-home
 docker compose up -d
 ```
@@ -214,6 +214,10 @@ Standard library only. The page is `whatleaves/static/`; the grading is `whatlea
 ## How this was built
 
 I designed What Leaves Home and ran it on my own home network while building it. Most of the code was written with Claude, an AI coding assistant, working to my direction. Every change is covered by the tests in this repository. Before the first public release, a separate AI review focused on security, and its findings were fixed. Bug reports and questions are welcome either way.
+
+## Reporting a security problem
+
+Please don't open a public issue. See [SECURITY.md](SECURITY.md).
 
 ## Licence
 
