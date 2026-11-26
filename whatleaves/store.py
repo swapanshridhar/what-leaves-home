@@ -69,6 +69,17 @@ MAX_SERVICES = 500          # per agent report
 MAX_REPORT_CONNS = 20_000   # per agent report
 
 
+SINKHOLES = {"0.0.0.0", "::"}
+
+
+def sinkholed(answers):
+    """True when every answer is a blocking filter's 'nothing here' address. Catches blocks made
+    further up a chain of filters (a Pi-hole forwarding to AdGuard, a router's AdGuard to the
+    house's), which the first filter's own log reports as allowed."""
+    answers = [str(a) for a in (answers or [])]
+    return bool(answers) and all(a in SINKHOLES for a in answers)
+
+
 def _short(value, limit):
     """A string field from outside, refused (not cut) when too long, so junk can't pile up."""
     value = str(value)
@@ -97,6 +108,16 @@ class Store:
         self.lock = threading.Lock()
         self.db = sqlite3.connect(path, check_same_thread=False)
         self.db.executescript(SCHEMA)
+        self._mark_sinkholed()
+
+    def _mark_sinkholed(self):
+        """Older versions missed blocks made further up a chain of filters; mark them now."""
+        rows = self.db.execute("SELECT rowid, answers FROM lookups WHERE blocked = 0 AND "
+                               "(answers LIKE '%0.0.0.0%' OR answers LIKE '%\"::\"%')").fetchall()
+        fix = [(rid,) for rid, answers in rows if sinkholed(json.loads(answers or "[]"))]
+        if fix:
+            with self.db:
+                self.db.executemany("UPDATE lookups SET blocked = 1 WHERE rowid = ?", fix)
 
     def q(self, sql, args=()):
         with self.lock:
@@ -124,7 +145,7 @@ class Store:
         values = self._valid(rows, lambda r: (
             utc(r["time"]), _short(r["client"], MAX_CLIENT), _short(r["name"].rstrip(".").lower(), 253),
             _short(r.get("qtype", ""), 16), json.dumps([str(a)[:64] for a in (r.get("answers") or [])][:32]),
-            _short(r.get("upstream", ""), 128), int(bool(r.get("blocked")))))
+            _short(r.get("upstream", ""), 128), int(bool(r.get("blocked")) or sinkholed(r.get("answers")))))
         with self.lock, self.db:
             return self.db.executemany("INSERT OR IGNORE INTO lookups VALUES (?,?,?,?,?,?,?)", values).rowcount
 

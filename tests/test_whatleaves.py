@@ -518,6 +518,33 @@ class Agent(unittest.TestCase):
         self.assertIn(f"githubusercontent.com/{REPO}/", sh)
 
 
+class Chains(unittest.TestCase):
+    def test_upstream_blocks_count_as_blocked(self):
+        store = Store(":memory:")
+        row = lambda name, answers: {"time": "2026-11-25T10:00:00Z", "client": "192.168.1.20", "name": name,
+                                     "qtype": "A", "answers": answers, "upstream": "192.168.1.2:53", "blocked": False}
+        store.add_lookups([row("logs.vendor.example", ["0.0.0.0"]), row("api.vendor.example", ["203.0.113.5"]),
+                           row("ads.vendor.example", ["::"]), row("gone.vendor.example", [])])
+        got = dict(store.q("SELECT name, blocked FROM lookups"))
+        self.assertEqual(got, {"logs.vendor.example": 1, "api.vendor.example": 0, "ads.vendor.example": 1,
+                               "gone.vendor.example": 0})
+
+
+    def test_partly_blocked_company_is_not_a_tracker(self):
+        look = lambda name, count, blocked: {"name": name, "site": site(name), "count": count, "blocked": blocked,
+                                             "qtype": "A", "answers": [], "first": "2026-11-25T10:00:00Z",
+                                             "last": "2026-11-25T10:30:00Z"}
+        raw = {"lookups": [look("api.streamco.example", 40, 0), look("logs.streamco.example", 300, 300)],
+               "connections": []}
+        comps = analysis.companies_for(raw, None)
+        a = analysis.assess(raw, comps)
+        texts = " ".join(r["text"] for r in a["reasons"])
+        self.assertIn("blocked every one", texts)
+        self.assertIn("300 times", texts)
+        self.assertNotIn("Looked up ad or tracking", texts)
+        self.assertFalse(comps[0]["tracking"])
+
+
 class Limits(unittest.TestCase):
     def test_store_refuses_junk_rows(self):
         store = Store(":memory:")

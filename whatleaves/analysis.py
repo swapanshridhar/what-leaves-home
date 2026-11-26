@@ -153,7 +153,7 @@ def companies_for(raw, owners, site_names=None):
         return comps.setdefault(name, {"company": name, "domains": {}, "lookups": 0, "bytes_out": 0,
                                        "bytes_in": 0, "connections": 0, "hosting": set(), "countries": set(),
                                        "tracking": False, "time": False, "addresses": set(),
-                                       "unexplained": False})
+                                       "unexplained": False, "listed": False, "track": 0, "through": 0})
 
     for l in raw["lookups"]:
         if is_local_name(l["name"]):
@@ -162,7 +162,12 @@ def companies_for(raw, owners, site_names=None):
         e = entry(company_for_site(s, site_names))
         e["domains"][l["name"]] = e["domains"].get(l["name"], 0) + l["count"]
         e["lookups"] += l["count"]
-        e["tracking"] |= is_tracking(s) or bool(l["blocked"])
+        # Ad or tracking names: on the built-in list, or blocked by a DNS filter. "through" counts
+        # the lookups of those names that weren't blocked, so got an answer.
+        if is_tracking(s) or l["blocked"]:
+            e["track"] += l["count"]
+            e["through"] += l["count"] - min(l["blocked"], l["count"])
+        e["listed"] |= is_tracking(s)
     for c in raw["connections"]:
         if c["local"]:
             continue
@@ -185,6 +190,10 @@ def companies_for(raw, owners, site_names=None):
             e["countries"].add(cc)
     out = []
     for e in comps.values():
+        # A tracking company: on the built-in list, or every lookup of it blocked. A company with
+        # only some names blocked (a streaming app's logging) stays itself; the blocked names count
+        # as blocked attempts, not as the whole company.
+        e["tracking"] = e["listed"] or (e["lookups"] > 0 and e["track"] >= e["lookups"])
         # A time service only if every name of this company is one (time.vendor.com alone doesn't make
         # the vendor a time service).
         e["time"] = bool(e["domains"]) and all(is_time_service(n) for n in e["domains"])
@@ -201,10 +210,8 @@ def assess(raw, comps, server=False):
     """Score, grade, verdict and the reasons, good and bad. A server (a machine whose services
     report through an agent) isn't marked down for talking to many companies: its services are."""
     score, reasons = 100, []
-    blocked_only = {l["site"] for l in raw["lookups"] if l["blocked"] and l["blocked"] >= l["count"]}
-    tried = [c for c in comps if c["tracking"] and {company_for_site(site(d["name"])) for d in c["domains"]}
-             and all(site(d["name"]) in blocked_only for d in c["domains"])]
-    tracking = [c for c in comps if c["tracking"] and c not in tried]
+    tried = [c for c in comps if c["track"] and not c["through"]]
+    tracking = [c for c in comps if c["through"]]
     # Unexplained destinations are counted once, below, not as extra companies.
     makers = [c for c in comps if not c["tracking"] and not c["time"] and not c["cert"] and not c["unexplained"]]
     # A device maker's servers often run on a cloud platform (iRobot on AWS). The maker is the
@@ -222,15 +229,16 @@ def assess(raw, comps, server=False):
     per_day = sum(c["bytes_out"] for c in remote) / days
 
     if tracking:
-        n = sum(c["lookups"] for c in tracking)
+        n = sum(c["through"] for c in tracking)
         score -= 35 if n >= 20 else 20
         names = ", ".join(c["company"] for c in tracking[:3])
         reasons.append({"level": "bad", "text": f"Looked up ad or tracking services {plural(n, 'time')}: {names}"})
     if tried:
-        n = sum(c["lookups"] for c in tried)
+        n = sum(c["track"] for c in tried)
         score -= 5
-        reasons.append({"level": "warn", "text": f"Tried to reach ad or tracking services {plural(n, 'time')}, and your DNS filter "
-                        f"blocked every one: {', '.join(c['company'] for c in tried[:3])}"})
+        reasons.append({"level": "warn", "text": f"Tried to reach ad, tracking or other blocked services {plural(n, 'time')}, "
+                        f"and your DNS filter blocked every one: {', '.join(c['company'] for c in tried[:3])}"
+                        + (f" and {len(tried) - 3} more" if len(tried) > 3 else "")})
     if plaintext:
         # What it was for matters: logos or an update download are a weakness, not data about you.
         score -= 10
