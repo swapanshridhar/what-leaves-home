@@ -25,11 +25,22 @@ DOH_NAMES = ("dns.google", "cloudflare-dns.com", "one.one.one.one", "dns.quad9.n
              "dns.nextdns.io", "doh.dns.apple.com", "mozilla.cloudflare-dns.com")
 
 
+# "Am I online, or behind a Wi-Fi login page?" checks: plain HTTP by design, on every device.
+CONNECTIVITY_CHECKS = ("captive.apple.com", "connectivitycheck.gstatic.com", "connectivitycheck.android.com",
+                       "clients3.google.com", "www.msftconnecttest.com", "www.msftncsi.com", "detectportal.firefox.com",
+                       "nmcheck.gnome.org", "connectivity-check.ubuntu.com", "network-test.debian.org")
+
+
+def _routine_http(name):
+    n = name.rstrip(".").lower()
+    return is_cert_check(n) or n in CONNECTIVITY_CHECKS
+
+
 def plaintext_conns(raw):
     """Unencrypted connections to the internet (web, FTP, Telnet, video). Certificate checks
-    (OCSP, CRL) use plain HTTP by design, on every device, so they don't count."""
+    (OCSP, CRL) and connectivity checks use plain HTTP by design, on every device, so they don't count."""
     return [c for c in raw["connections"] if not c["local"] and c["proto"] == "tcp" and c["dport"] in PLAINTEXT_PORTS
-            and not (c["names"] and all(is_cert_check(n) for n in c["names"]))]
+            and not (c["names"] and all(_routine_http(n) for n in c["names"]))]
 
 
 def outside_dns(raw):

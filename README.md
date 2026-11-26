@@ -146,7 +146,7 @@ Connections and data volumes need a source that records them, such as the collec
 
 ### How grades work
 
-Every device starts at 100. Points come off for: ad or tracking services (blocked by your filter, or on a built-in list), using its own DNS server to go around your filter, unencrypted web traffic to the internet (certificate checks, which are plain HTTP on every device, don't count), talking to companies other than its maker, connecting to addresses it never looked up, and uploading a lot. A is 90 and up and looks fine; B and C are worth a look; D and F are a concern. The reasons are always listed with the grade. This is a first version, and suggestions are welcome.
+Every device starts at 100. Points come off for: ad or tracking services (blocked by your filter, or on a built-in list), using its own DNS server to go around your filter, unencrypted web traffic to the internet (certificate checks and "am I online?" checks, which are plain HTTP on every device, don't count), talking to companies other than its maker, connecting to addresses it never looked up, and uploading a lot. A is 90 and up and looks fine; B and C are worth a look; D and F are a concern. The reasons are always listed with the grade. This is a first version, and suggestions are welcome.
 
 ### Company names and countries
 
