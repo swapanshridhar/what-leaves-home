@@ -330,9 +330,10 @@ class Sources:
 
 
 class DemoSource:
-    """A day of made-up traffic from five imaginary devices, chosen to show
-    every verdict. Names use the reserved .example domain and addresses come
-    from the documentation ranges, so nothing here is a real company."""
+    """A day of made-up traffic from an imaginary home: TVs, a streaming box, a speaker,
+    cameras, appliances, a phone, a laptop and a game console, chosen to show every verdict.
+    Names use the reserved .example domain and addresses come from the documentation
+    ranges, so nothing here is a real company."""
     kind = "demo"
     SITE_NAMES = {
         "tv-maker.example": "TV Maker Co.", "adnetwork.example": "AdNetwork (ads)",
@@ -342,19 +343,41 @@ class DemoSource:
         "vacuum-cloud.example": "Vacuum Co.", "metrics-vendor.example": "MetricsVendor",
         "media-metadata.example": "MediaMetadata", "weather-data.example": "WeatherData",
         "media-index.example": "MediaIndex", "analytics-vendor.example": "AnalyticsVendor (tracking)",
+        "box-maker.example": "Streaming Box Co.", "ac-maker.example": "AC Maker Co.",
+        "humidifier-cloud.example": "Humidifier Co.", "phone-maker.example": "Phone Co.",
+        "os-maker.example": "OS Maker Co.", "mail.example": "Mail Co.", "social.example": "Social Co.",
+        "search.example": "Search Co.", "console-maker.example": "Console Co.",
+        "video-calls.example": "VideoCalls Co.",
     }
     OWNER_RANGES = [("203.0.113.0/26", "Example Cloud Hosting", "US"),
                     ("203.0.113.64/26", "Example CDN", "DE"),
-                    ("198.51.100.0/24", "Unknown Hosting Ltd", "CN")]
+                    ("203.0.113.128/25", "Example Cloud Hosting", "US"),
+                    ("198.51.100.0/24", "Unknown Hosting Ltd", "CN"),
+                    ("192.0.2.0/24", "PublicDNS Co.", "US")]
     # client: (name, [(host, lookups per day, address, port, MB sent per day, blocked)])
     DEVICES = {
         "192.168.1.21": ("Living room TV", [
-            ("api.tv-maker.example", 120, "203.0.113.10", 443, 4, False),
+            ("api.tv-maker.example", 110, "203.0.113.10", 443, 3, False),
             ("firmware.tv-maker.example", 6, "203.0.113.12", 80, 1, False),
             ("ads.adnetwork.example", 300, "203.0.113.20", 443, 0, True),
             # Viewing-data trackers (ACR) often aren't on blocklists: this one gets through.
             ("acr.viewing-data.example", 400, "203.0.113.30", 443, 1.5, False),
+            ("cdn.streaming.example", 40, "203.0.113.70", 443, 1, False)]),
+        "192.168.1.22": ("Bedroom TV", [
+            ("api.tv-maker.example", 120, "203.0.113.10", 443, 4, False),
+            ("ads.tv-maker.example", 40, "203.0.113.13", 443, 0, True),
+            ("ads.adnetwork.example", 120, "203.0.113.20", 443, 0, True),
+            # Its viewing-data feature is off: the setup server is looked up now and then, and blocked.
+            ("setup.viewing-data.example", 10, "203.0.113.30", 443, 0, True),
+            # A streaming app's logging server: blocked, and retried all day. The app also asks an
+            # outside DNS server directly (see OUTSIDE_DNS), around the filter.
+            ("logs.streaming.example", 364, "203.0.113.72", 443, 0, True),
             ("cdn.streaming.example", 60, "203.0.113.70", 443, 2, False)]),
+        "192.168.1.25": ("Streaming box", [
+            ("api.box-maker.example", 150, "203.0.113.130", 443, 2, False),
+            ("cdn.streaming.example", 90, "203.0.113.70", 443, 3, False),
+            ("ads.adnetwork.example", 80, "203.0.113.20", 443, 0, True),
+            ("collect.analytics-vendor.example", 60, "203.0.113.95", 443, 0.4, False)]),
         "192.168.1.34": ("Kitchen speaker", [
             ("voice.speaker-cloud.example", 90, "203.0.113.40", 443, 6, False),
             ("time.speaker-cloud.example", 24, "203.0.113.41", 443, 0.01, False),
@@ -362,13 +385,39 @@ class DemoSource:
         "192.168.1.47": ("Doorbell camera", [
             ("upload.camera-cloud.example", 72, "203.0.113.50", 443, 40, False),
             ("p2p.camera-relay.example", 144, "198.51.100.20", 9000, 12, False)]),
+        "192.168.1.48": ("Backyard camera", [
+            ("upload.camera-cloud.example", 48, "203.0.113.50", 443, 25, False),
+            ("time.camera-cloud.example", 24, "203.0.113.51", 443, 0.01, False)]),
         "192.168.1.58": ("Smart plug", [
             ("mqtt.plug-cloud.example", 24, "203.0.113.60", 8883, 0.2, False)]),
+        # The robot vacuum that maps the house: small, encrypted, its maker plus a crash reporter.
         "192.168.1.63": ("Robot vacuum", [
-            ("api.vacuum-cloud.example", 48, "203.0.113.55", 443, 3, False),
-            ("maps.vacuum-cloud.example", 4, "203.0.113.56", 443, 220, False),
-            ("collect.metrics-vendor.example", 96, "203.0.113.80", 443, 1, False)]),
+            ("api.vacuum-cloud.example", 48, "203.0.113.55", 443, 0.15, False),
+            ("crash.metrics-vendor.example", 4, "203.0.113.80", 443, 0.01, False)]),
+        "192.168.1.70": ("Air conditioner", [
+            ("api.ac-maker.example", 96, "203.0.113.140", 443, 0.3, False),
+            ("update.ac-maker.example", 4, "203.0.113.141", 80, 0.05, False)]),
+        "192.168.1.71": ("Humidifier", [
+            ("mqtt.humidifier-cloud.example", 24, "203.0.113.150", 8883, 0.1, False)]),
+        "192.168.1.80": ("Phone", [
+            ("push.phone-maker.example", 200, "203.0.113.160", 443, 1, False),
+            ("mail.example", 120, "203.0.113.161", 443, 2, False),
+            ("feed.social.example", 300, "203.0.113.162", 443, 8, False),
+            ("ads.adnetwork.example", 160, "203.0.113.20", 443, 0, True),
+            ("search.example", 90, "203.0.113.163", 443, 0.5, False)]),
+        "192.168.1.81": ("Laptop", [
+            ("update.os-maker.example", 30, "203.0.113.170", 443, 1, False),
+            ("mail.example", 100, "203.0.113.161", 443, 3, False),
+            ("search.example", 140, "203.0.113.163", 443, 1, False),
+            ("meet.video-calls.example", 20, "203.0.113.171", 443, 40, False)]),
+        "192.168.1.90": ("Game console", [
+            ("api.console-maker.example", 120, "203.0.113.180", 443, 1, False),
+            ("store.console-maker.example", 20, "203.0.113.181", 443, 0.5, False),
+            ("telemetry.console-maker.example", 96, "203.0.113.182", 443, 2, False),
+            ("collect.analytics-vendor.example", 40, "203.0.113.95", 443, 0.2, False)]),
     }
+    # Devices that also ask an outside DNS server directly: client -> server address.
+    OUTSIDE_DNS = {"192.168.1.22": "192.0.2.53"}
 
     def poll(self, store):
         if store.get_meta("demo_loaded"):
@@ -393,6 +442,11 @@ class DemoSource:
                     sent += int(total / 72 * busy * rnd.uniform(0.5, 1.5))  # a running total, as conntrack reports
                     conns.append({"time": t.isoformat(), "client": client, "proto": "tcp", "dst": addr,
                                   "sport": sport, "dport": port, "out_bytes": sent, "in_bytes": sent // 3})
+        # Lookups sent to an outside DNS server, around the filter: only the connection is seen.
+        for client, server in self.OUTSIDE_DNS.items():
+            conns += [{"time": (now - timedelta(minutes=20 * (72 - k))).isoformat(), "client": client,
+                       "proto": "udp", "dst": server, "sport": 44335, "dport": 53,
+                       "out_bytes": 80 * k, "in_bytes": 120 * k} for k in range(1, 73)]
         # A fixed-address connection with no lookup at all, to show that finding.
         for k in range(1, 73):
             t = now - timedelta(minutes=20 * (72 - k))

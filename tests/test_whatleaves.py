@@ -70,7 +70,7 @@ class Analysis(unittest.TestCase):
         store, owners = demo_store()
         o = analysis.overview(store, owners, DemoSource.SITE_NAMES)
         c = o["counts"]
-        self.assertEqual((c["devices"], c["services"]), (7, 4))
+        self.assertEqual((c["devices"], c["services"]), (15, 4))
         self.assertTrue(c["good"] and c["check"] and c["concern"])
         self.assertEqual(o["finding"]["device"], "Living room TV")
         by = {d["name"]: d for d in o["devices"]}
@@ -413,7 +413,7 @@ class Web(unittest.TestCase):
         self.assertEqual(self.call("/api/setup", {"user": "admin", "password": "a good password", "code": code})[0], 200)
         self.assertEqual(self.call("/api/setup", {"user": "x", "password": "another password", "code": code})[0], 409)
         status, o = self.call("/api/overview")
-        self.assertEqual((status, o["counts"]["total"]), (200, 11))
+        self.assertEqual((status, o["counts"]["total"]), (200, 19))
         status, d = self.call("/api/device?client=192.168.1.21")
         self.assertEqual(d["grade"], "F")
         self.assertEqual(self.call("/api/name", {"client": "192.168.1.21", "name": "Den TV"})[0], 200)
