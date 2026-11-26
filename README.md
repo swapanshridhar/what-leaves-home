@@ -6,6 +6,14 @@ What Leaves Home shows what each device, and each app on your home servers, talk
 
 Status: early (0.8). Grades are a first version: simple rules, always shown with their reasons.
 
+**What you need:**
+
+1. **An always-on machine with Docker** on your home network: a Raspberry Pi, a NAS or an old PC, running Linux.
+2. **AdGuard Home or Pi-hole 6**, the DNS filter that sees each device's lookups. Don't have one? The second install below sets up AdGuard Home with it.
+3. **At least one device using that filter for DNS.** That's what makes a device show up. The app walks you through it.
+
+Without 2 and 3 it shows demo devices, so you can look around first.
+
 <picture>
   <source media="(prefers-color-scheme: dark)" srcset="docs/screenshots/overview-dark.png">
   <img alt="The overview: devices graded A to F, with the biggest finding first. Here a TV looked up a viewing-data service 400 times." src="docs/screenshots/overview.png">
@@ -44,7 +52,7 @@ cd what-leaves-home
 docker compose up -d
 ```
 
-Open `http://<that machine's address>:8080`. The first visit asks you to create the login for the page. There is no default password; instead it asks for a one-time setup code, which you get with `docker logs whatleaves`, so nobody else on your network can claim the page before you do. Then a short guide asks how you want to start: connect your AdGuard Home, or look around the demo first. Either way it ends with **"Point one device here"**: the address to enter and the steps for your phone, laptop or TV, and it shows that device as soon as its first lookups arrive.
+Open `http://<that machine's address>:8080` (on the machine, `hostname -I` prints its address). The first visit asks you to create the login for the page. There is no default password; instead it asks for a one-time setup code, which you get with `docker logs whatleaves`, so nobody else on your network can claim the page before you do. Then a short guide asks how you want to start: connect your AdGuard Home, or look around the demo first. Either way it ends with **"Point one device here"**: the address to enter and the steps for your phone, laptop or TV, and it shows that device as soon as its first lookups arrive.
 
 ## The goal: every device on its own line
 
@@ -90,6 +98,17 @@ To see devices separately with one of these:
 - **For everything:** something else has to be the router (option 4). These meshes can't keep their extra points once they stop being the router: bridge mode works with a single unit only. So plan for access points that mesh in access-point mode, alongside the new router.
 
 The whole-home view is the fallback while you decide. It's still useful for what the house as a whole talks to.
+
+## Updating and removing
+
+```bash
+cd what-leaves-home
+git pull && docker compose up -d --build   # update to the latest version, keeping your data
+docker compose down                        # stop it; your data stays
+docker compose down -v                     # remove it and its data
+```
+
+With the AdGuard bundle, add `-f compose.with-adguard.yaml` after `docker compose`. Note that `down -v` there removes AdGuard Home's settings too.
 
 ## Without Docker
 
@@ -209,7 +228,7 @@ Standard library only. The page is `whatleaves/static/`; the grading is `whatlea
 ## Planned
 
 - Better grades: device types, known trackers per device type, DNS that bypasses your filter
-- A ready-made image on GitHub's container registry (the workflow is in `.github/workflows/`)
+- Installing from the published image, without cloning the repository first
 
 ## How this was built
 
