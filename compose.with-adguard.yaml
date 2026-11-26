@@ -36,15 +36,19 @@ services:
     environment:
       WL_ADGUARD_LOG: /adguard/data/querylog.json
       WL_ADGUARD_UI_PORT: "3000"
+      WL_DB: /state/whatleaves.db
     # AdGuard keeps its log readable by root only, so this container runs as root, but with
     # every capability dropped, a read-only root filesystem and no privilege escalation.
     user: "0:0"
     read_only: true
     cap_drop: [ALL]
     security_opt: ["no-new-privileges:true"]
+    # Its data lives in /state, a folder root owns: with every capability dropped, root can't
+    # write into the image's /data, which belongs to the app's own user.
+    tmpfs: [/tmp]
     volumes:
       - adguard-work:/adguard:ro
-      - whatleaves-data:/data
+      - whatleaves-data:/state
 
 volumes:
   adguard-work:

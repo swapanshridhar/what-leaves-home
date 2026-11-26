@@ -6,13 +6,15 @@ What Leaves Home shows what each device, and each app on your home servers, talk
 
 Status: early (0.8). Grades are a first version: simple rules, always shown with their reasons.
 
-**What you need:**
+**Three ways to start:**
 
-1. **An always-on machine with Docker** on your home network: a Raspberry Pi, a NAS or an old PC, running Linux.
-2. **AdGuard Home or Pi-hole 6**, the DNS filter that sees each device's lookups. Don't have one? The second install below sets up AdGuard Home with it.
-3. **At least one device using that filter for DNS.** That's what makes a device show up. The app walks you through it.
+| | What you'll see | What you need | Time |
+|---|---|---|---|
+| **[Look at the live demo](https://swapanshridhar.github.io/what-leaves-home/)** | Made-up devices | A browser | Now |
+| **[Try it on your laptop](#try-it-on-your-laptop)** | This laptop | Docker Desktop (Mac, Windows or Linux) | 2 minutes |
+| **[Run it for your whole home](#run-it-for-your-whole-home)** | Every device that uses your DNS filter | An always-on Linux machine with Docker (a Raspberry Pi, a NAS, a home server), and AdGuard Home or Pi-hole 6. No filter yet? It installs AdGuard Home for you | 10 minutes |
 
-Without 2 and 3 it shows demo devices, so you can look around first.
+You can start on the laptop and move to a home server later.
 
 <picture>
   <source media="(prefers-color-scheme: dark)" srcset="docs/screenshots/overview-dark.png">
@@ -40,49 +42,77 @@ There are good tools near this space. What Leaves Home is built to be the layer 
 - **Self-hosted apps, not just gadgets.** Per-service visibility on your own servers is the part people usually piece together from command-line tools. Here it's one command per server and a page per app.
 - **Honest about limits.** DNS-based tools can't see devices that use hard-coded or encrypted DNS, or devices hidden behind a router that answers DNS for everyone. The app says when that's happening, and the agent's connection data fills some of the gap.
 
-**Try the live demo in your browser:** [swapanshridhar.github.io/what-leaves-home](https://swapanshridhar.github.io/what-leaves-home/). Made-up devices, nothing to install.
+## Install
 
-## Try it in two minutes
+### Try it on your laptop
 
-You need Docker. On any always-on machine on your network (a Raspberry Pi, a NAS, an old PC):
+For a first look, on a Mac, Windows or Linux laptop with [Docker Desktop](https://www.docker.com/products/docker-desktop/) running. It brings its own AdGuard Home, already set up, so there's nothing to configure:
 
 ```bash
-git clone https://github.com/swapanshridhar/what-leaves-home.git
-cd what-leaves-home
+mkdir what-leaves-home && cd what-leaves-home
+curl -fsSLO https://raw.githubusercontent.com/swapanshridhar/what-leaves-home/v0.8.0/compose.laptop.yaml
+docker compose -f compose.laptop.yaml up -d
+```
+
+Open [http://localhost:8080](http://localhost:8080). There's no login: everything here listens on this laptop only, not on your network.
+
+**To see your laptop's own traffic,** point its DNS at the AdGuard Home that just started, at `127.0.0.1`:
+
+- **Mac:** System Settings → Wi-Fi → Details (next to your network) → DNS → **+** → `127.0.0.1`, remove the other entries, OK.
+- **Windows:** Settings → Network & internet → Wi-Fi → your network's properties → DNS server assignment → Edit → Manual → IPv4 on → Preferred DNS `127.0.0.1` → Save.
+- **Browsers with "secure DNS" turned on** skip it, so turn that off while you try: Chrome → Settings → Privacy and security → Security → Use secure DNS; Firefox → Settings → Privacy & Security → DNS over HTTPS.
+
+Within a minute your laptop shows up as **This computer**, with its grade and who it talks to. AdGuard Home's own page is at [http://localhost:3000](http://localhost:3000).
+
+**When you're done,** set the DNS back to automatic **first**, then remove it:
+
+```bash
+docker compose -f compose.laptop.yaml down -v
+```
+
+(Removing it while the DNS still says `127.0.0.1` leaves the laptop unable to look anything up, until you set the DNS back.)
+
+### Run it for your whole home
+
+On an always-on Linux machine with Docker on your home network: a Raspberry Pi, a NAS or a home server. Pick the line that fits.
+
+**You already run AdGuard Home or Pi-hole 6:**
+
+```bash
+mkdir what-leaves-home && cd what-leaves-home
+curl -fsSLO https://raw.githubusercontent.com/swapanshridhar/what-leaves-home/v0.8.0/compose.yaml
 docker compose up -d
 ```
 
-Open `http://<that machine's address>:8080` (on the machine, `hostname -I` prints its address). The first visit asks you to create the login for the page. There is no default password; instead it asks for a one-time setup code, which you get with `docker logs whatleaves`, so nobody else on your network can claim the page before you do. Then a short guide asks how you want to start: connect your AdGuard Home, or look around the demo first. Either way it ends with **"Point one device here"**: the address to enter and the steps for your phone, laptop or TV, and it shows that device as soon as its first lookups arrive.
+1. Open `http://<this machine's address>:8080` (`hostname -I` prints the address).
+2. Create the login. There's no default password: the first visit asks for a one-time setup code, which `docker logs whatleaves` prints, so nobody else on your network can claim the page first.
+3. Press **Connect**, choose AdGuard Home or Pi-hole, enter its address (the one you open its web page at) and its login, then **Test** and **Save**. For Pi-hole 6, use an app password from Settings → Web interface / API. (Pi-hole 5 isn't supported.)
 
-## The goal: every device on its own line
-
-What Leaves Home is at its best when each device (the TV, the speaker, each phone) shows up separately. That happens when each device asks your DNS filter, AdGuard Home, directly. How you get there depends on your router.
-
-### Don't have AdGuard Home yet? Install both together
+**You don't run either yet:** this installs AdGuard Home together with What Leaves Home, already connected.
 
 ```bash
+mkdir what-leaves-home && cd what-leaves-home
+curl -fsSLO https://raw.githubusercontent.com/swapanshridhar/what-leaves-home/v0.8.0/compose.with-adguard.yaml
 docker compose -f compose.with-adguard.yaml up -d
 ```
 
-1. Open `http://<this machine>:3000` and finish AdGuard Home's short setup. Keep its web page on port 3000 and DNS on port 53.
-2. Point your network's DNS at this machine (next section).
-3. Open `http://<this machine>:8080`.
-
-What Leaves Home reads AdGuard's log file directly, so there's no second login to enter. AdGuard saves its log in batches, so the first results can take a little while (it writes after about a thousand lookups).
+1. **Right away,** open `http://<this machine's address>:3000` and finish AdGuard Home's short setup: keep its web page on port 3000 and DNS on port 53, and choose its login. Until you do, anyone on your network could.
+2. Open `http://<this machine's address>:8080` and create the login, with the setup code from `docker logs whatleaves`.
+3. Point your devices at this machine (below). What Leaves Home reads AdGuard's log file, which AdGuard writes after about a thousand lookups, so the first results take a little while.
 
 If port 53 is already in use on a Debian or Ubuntu machine, the system's own DNS stub is holding it. AdGuard's documentation describes the fix ("Docker: port 53 is in use"): turn off `DNSStubListener` in systemd-resolved.
 
-### Already have AdGuard Home or Pi-hole? Connect it
+**Either way:** if port 8080 is already taken on that machine, put `WL_HOST_PORT=8090` in a file named `.env` next to the compose file, run the `up -d` command again, and use port 8090. The same `.env` file can hold your AdGuard or Pi-hole details instead of entering them on the page; see [.env.example](.env.example). Some routers ship their own build of AdGuard Home that only accepts the router's admin session (GL.iNet is one): read its log file instead, as in [docs/collector.md](docs/collector.md).
 
-On the page, click **Connect** (or Settings → Data source), choose AdGuard Home or Pi-hole, enter its address (the one you open its web page at) and its login, press **Test**, then **Save**. For Pi-hole 6, use an app password from Settings → Web interface / API. (Pi-hole 5 isn't supported.) The test also warns you when nearly every lookup comes from one address, your router.
+**Coming from the laptop?** Install on the home server as above. The laptop's data stays on the laptop; remove it there with `down -v`, after setting its DNS back.
 
-Or put it in a file: `cp .env.example .env`, fill in `WL_ADGUARD_URL`, `WL_ADGUARD_USER` and `WL_ADGUARD_PASSWORD` (or `WL_PIHOLE_URL` and `WL_PIHOLE_PASSWORD`), and `docker compose up -d`. Pi-hole's log doesn't include the addresses it answered, so with Pi-hole, connections from the agent or collector are named less often.
+**Prefer the source?** `git clone https://github.com/swapanshridhar/what-leaves-home.git`, then `docker compose up -d --build` in it builds the image yourself.
 
-Some routers ship their own build of AdGuard Home that only accepts the router's admin session (GL.iNet is one). Read its log file instead: see [docs/collector.md](docs/collector.md).
+## Point your devices at your filter
 
-### Point your devices at AdGuard: best first
+What Leaves Home is at its best when each device (the TV, the speaker, each phone) shows up separately. That happens when each device asks your DNS filter directly. The page's **See each device separately** guide walks through it for your router; in short:
 
-1. **Change the DNS your router hands out.** In your router's DHCP or LAN settings, set the DNS server to the AdGuard machine's address. Every device picks it up as it reconnects, and each shows up separately. Many standalone routers allow this, and OpenWrt, OPNsense, pfSense and UniFi always do.
+1. **Change the DNS your router hands out.** In your router's DHCP or LAN settings, set the DNS server to your filter's address. Every device picks it up as it reconnects, and each shows up separately. Many standalone routers allow this, and OpenWrt, OPNsense, pfSense and UniFi always do.
 2. **Set DNS on individual devices.** Phones, computers, most TVs and streaming boxes, and game consoles have a manual DNS setting. The app's **See each device separately** page gives the steps for each kind. Smart plugs, fans and appliances don't have one.
 3. **A small helper router** (a travel router, about $30 to $120) gives a few appliances their own Wi-Fi with AdGuard as DNS.
 4. **A router that hands out AdGuard**, for every device permanently.
@@ -101,14 +131,15 @@ The whole-home view is the fallback while you decide. It's still useful for what
 
 ## Updating and removing
 
+In the folder with the compose file:
+
 ```bash
-cd what-leaves-home
-git pull && docker compose up -d --build   # update to the latest version, keeping your data
-docker compose down                        # stop it; your data stays
-docker compose down -v                     # remove it and its data
+docker compose pull && docker compose up -d   # update to the latest version, keeping your data
+docker compose down                           # stop it; your data stays
+docker compose down -v                        # remove it and its data
 ```
 
-With the AdGuard bundle, add `-f compose.with-adguard.yaml` after `docker compose`. Note that `down -v` there removes AdGuard Home's settings too.
+With the AdGuard Home or laptop versions, add `-f compose.with-adguard.yaml` or `-f compose.laptop.yaml` after `docker compose`. `down -v` there removes AdGuard Home's settings too. From a clone, update with `git pull && docker compose up -d --build`.
 
 ## Without Docker
 

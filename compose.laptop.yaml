@@ -39,8 +39,17 @@ services:
       WL_ADGUARD_UI_PORT: "3000"
       WL_AUTH: "off"   # only this computer can reach it (127.0.0.1 above)
       WL_POLL_SECONDS: "60"   # read AdGuard every minute, so a first look shows up quickly
+      # Lookups from this computer arrive from Docker's gateway: 172.29.53.1 below, or
+      # 192.168.65.1 with Docker Desktop on a Mac or Windows.
+      WL_NAMES: "172.29.53.1=This computer,192.168.65.1=This computer"
     volumes:
       - whatleaves-data:/data
+
+networks:
+  default:
+    ipam:
+      config:
+        - subnet: 172.29.53.0/24
 
 volumes:
   adguard-work:
