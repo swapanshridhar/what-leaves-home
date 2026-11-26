@@ -10,32 +10,41 @@ body:
     id: device
     attributes:
       label: The device
-      description: The kind, and the make and model if you know it.
-      placeholder: "Smart TV, Samsung QN90B"
+      description: The kind, and the make and model if you know them.
+      placeholder: "Smart TV, model QN90B"
     validations:
       required: true
   - type: input
     id: grade
     attributes:
-      label: The grade it got, and the reasons it gives
-      placeholder: "D: looked up ad or tracking services 120 times"
+      label: The grade it got, and the reasons the page gives
+      placeholder: "D: looked up ad or tracking services 120 times; talks to 2 other companies"
     validations:
       required: true
   - type: textarea
     id: wrong
     attributes:
-      label: What looks wrong
-      description: A company that isn't the right one, a finding that isn't true, a grade that's too harsh or too kind. Say why you think so.
+      label: What looks wrong, and why you think so
+      description: A company that isn't the right one, a finding that isn't true, a grade that's too harsh or too kind.
     validations:
       required: true
   - type: textarea
     id: names
     attributes:
       label: The names or addresses involved
-      description: From the device page's Technical details, if one name or address is the problem.
+      description: From the device page → Technical details, the lines that are wrong.
       render: text
+    validations:
+      required: true
+  - type: input
+    id: setup
+    attributes:
+      label: Version, and your DNS filter
+      placeholder: "0.8.0, AdGuard Home v0.107.79"
+    validations:
+      required: true
   - type: textarea
     id: screenshot
     attributes:
-      label: A screenshot of the device page (optional)
+      label: A screenshot of the device page
       description: Drag it in here. Hide anything private first.

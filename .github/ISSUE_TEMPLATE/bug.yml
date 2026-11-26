@@ -1,16 +1,24 @@
 name: Something's broken
-description: It doesn't install, start, connect or show what it should.
+description: It doesn't install, start, connect, or show what it should.
 labels: [bug]
 body:
   - type: markdown
     attributes:
       value: |
-        Thanks for reporting it. Please leave out anything private: your network's addresses are fine, but not passwords, tokens or the names of people.
-  - type: textarea
-    id: what
+        Thanks for reporting it. The questions below are what's needed to look into it straight away, without coming back to ask. Please leave out anything private: passwords, tokens, and people's names. Your network's addresses are fine.
+  - type: dropdown
+    id: stage
     attributes:
-      label: What happened
-      description: What you did, what you expected, and what you saw instead.
+      label: Where you got stuck
+      options:
+        - Installing (docker compose up)
+        - Opening the page, or the first-visit setup code
+        - Connecting AdGuard Home or Pi-hole
+        - Pointing a device at the filter
+        - A device doesn't show up
+        - The page shows something wrong or breaks
+        - The agent on a home server
+        - Something else
     validations:
       required: true
   - type: dropdown
@@ -26,20 +34,57 @@ body:
         - Something else
     validations:
       required: true
-  - type: input
-    id: version
+  - type: textarea
+    id: steps
     attributes:
-      label: Version
-      description: At the bottom of the page, or the first line of `docker logs whatleaves`.
-      placeholder: "0.8.0"
-  - type: input
-    id: machine
+      label: What you did, step by step
+      description: The commands you ran and the buttons you pressed, in order.
+      placeholder: |
+        1. docker compose up -d
+        2. Opened http://192.168.1.5:8080, entered the setup code
+        3. Pressed Connect, chose AdGuard Home, entered http://192.168.1.2:3000
+        4. Pressed Test
+    validations:
+      required: true
+  - type: textarea
+    id: what
     attributes:
-      label: The machine it runs on
-      placeholder: "Raspberry Pi 4 with Raspberry Pi OS, Synology NAS, Mac with Docker Desktop…"
+      label: What you expected, and what happened instead
+      description: Include the exact error message, if there is one.
+    validations:
+      required: true
+  - type: textarea
+    id: env
+    attributes:
+      label: Your setup
+      description: Run these where What Leaves Home runs, and paste the output. Then add the other lines by hand.
+      value: |
+        docker logs whatleaves 2>&1 | head -1:
+        docker version --format '{{.Server.Version}} {{.Server.Os}}/{{.Server.Arch}}':
+        Machine and system (for example Raspberry Pi 4, Raspberry Pi OS 64-bit):
+        DNS filter and its version (AdGuard Home v0.107…, Pi-hole 6…, or the one installed alongside):
+        Router (make and model, and whether it's a mesh like Google Wifi, Nest Wifi or eero):
+    validations:
+      required: true
   - type: textarea
     id: logs
     attributes:
-      label: The last lines of the log
-      description: "`docker logs --tail 50 whatleaves`. Check there's no password or token in them first."
+      label: The log
+      description: "`docker logs --tail 100 whatleaves`. Check there's no password or token in it first."
       render: text
+    validations:
+      required: true
+  - type: textarea
+    id: screenshots
+    attributes:
+      label: Screenshots
+      description: Of the page where it went wrong. Drag them in here. Hide anything private first.
+  - type: checkboxes
+    id: checks
+    attributes:
+      label: Before you send it
+      options:
+        - label: I followed the README section for my kind of install.
+          required: true
+        - label: There's no password, token or person's name in what I pasted.
+          required: true
