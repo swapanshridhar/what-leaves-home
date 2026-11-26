@@ -209,9 +209,18 @@ def companies_for(raw, owners, site_names=None):
 UPLOAD_SHARE = 0.25  # out/in above this is real uploading; streaming sends a few percent back as acknowledgements
 
 
+# Products named after themselves, not their maker.
+PRODUCT_MAKERS = {"roomba": "irobot", "braava": "irobot", "chromecast": "google", "nest": "google", "pixel": "google",
+                  "echo": "amazon", "kindle": "amazon", "firetv": "amazon", "ring": "ring", "webos": "lg",
+                  "thinq": "lg", "bravia": "sony", "homepod": "apple", "iphone": "apple", "ipad": "apple"}
+# Services a device uses but that never made it: never picked as the maker (still counted as others).
+NOT_MAKERS = {"Sentry", "Google (Crashlytics)", "Google Analytics", "NTP Pool (volunteer time servers)"}
+
+
 def _maker_hint(comps, name):
     """The company whose name the device is called by ("Samsung TV" -> Samsung), if any."""
     words = {w for w in re.split(r"[^a-z0-9]+", (name or "").lower()) if len(w) >= 2}
+    words |= {PRODUCT_MAKERS[w] for w in words if w in PRODUCT_MAKERS}
     for c in comps:
         first = re.split(r"[^a-z0-9]+", c["company"].lower())[0]
         if first and first in words:
@@ -229,7 +238,7 @@ def assess(raw, comps, server=False):
     makers = [c for c in comps if not c["tracking"] and not c["time"] and not c["cert"] and not c["unexplained"]]
     # A device maker's servers often run on a cloud platform (iRobot on AWS). The maker is the
     # first company that isn't a platform; platforms it also reaches aren't counted as others.
-    own = [c for c in makers if c["company"] not in CLOUD_PLATFORMS]
+    own = [c for c in makers if c["company"] not in CLOUD_PLATFORMS and c["company"] not in NOT_MAKERS]
     makers = own + [c for c in makers if c not in own] if own else makers
     # A TV's biggest company by data is whatever it streams; the name it goes by is a better guide.
     hint = _maker_hint(makers, raw.get("name"))

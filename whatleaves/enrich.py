@@ -63,7 +63,7 @@ SITE_COMPANIES = {
     "apple-cloudkit.com": "Apple", "apple.news": "Apple",
     "googleusercontent.com": "Google", "ggpht.com": "Google", "gvt1.com": "Google", "gvt2.com": "Google",
     "googleadservices.com": "Google Ads", "dns.google": "Google DNS", "irobotapi.com": "iRobot",
-    "akamaized.net": "Akamai", "akamaiedge.net": "Akamai", "edgekey.net": "Akamai", "edgesuite.net": "Akamai",
+    "akamaized.net": "Akamai", "akadns.net": "Akamai", "akamaitechnologies.com": "Akamai", "akamaiedge.net": "Akamai", "edgekey.net": "Akamai", "edgesuite.net": "Akamai",
     "tuya.com": "Tuya", "tuyaus.com": "Tuya", "tuyaeu.com": "Tuya", "reolink.com": "Reolink",
     "irobot.com": "iRobot", "sonos.com": "Sonos", "xiaomi.com": "Xiaomi", "mi.com": "Xiaomi",
     "xiaomi.net": "Xiaomi", "miui.com": "Xiaomi", "tplinkcloud.com": "TP-Link", "tp-link.com": "TP-Link",
