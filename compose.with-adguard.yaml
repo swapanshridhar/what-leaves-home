@@ -23,13 +23,13 @@ services:
       - adguard-conf:/opt/adguardhome/conf
 
   whatleaves:
-    build: .
-    image: whatleaves:local
+    image: ghcr.io/swapanshridhar/what-leaves-home:latest
+    build: .   # used only by `docker compose up --build`, from a clone of the repository
     container_name: whatleaves
     restart: unless-stopped
     depends_on: [adguard]
     ports:
-      - "8080:8080"
+      - "${WL_HOST_PORT:-8080}:8080"   # 8080 taken? Put WL_HOST_PORT=8090 in .env
     env_file:
       - path: .env
         required: false
