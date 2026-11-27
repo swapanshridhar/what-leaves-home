@@ -62,7 +62,7 @@ For a first look, on a Mac, Windows or Linux laptop with [Docker Desktop](https:
 
 ```bash
 mkdir what-leaves-home && cd what-leaves-home
-curl -fsSLO https://raw.githubusercontent.com/swapanshridhar/what-leaves-home/v0.8.0/compose.laptop.yaml
+curl -fsSLO https://raw.githubusercontent.com/swapanshridhar/what-leaves-home/v0.8.1/compose.laptop.yaml
 docker compose -f compose.laptop.yaml up -d
 ```
 
@@ -92,7 +92,7 @@ On an always-on Linux machine with Docker on your home network: a Raspberry Pi, 
 
 ```bash
 mkdir what-leaves-home && cd what-leaves-home
-curl -fsSLO https://raw.githubusercontent.com/swapanshridhar/what-leaves-home/v0.8.0/compose.yaml
+curl -fsSLO https://raw.githubusercontent.com/swapanshridhar/what-leaves-home/v0.8.1/compose.yaml
 docker compose up -d
 ```
 
@@ -104,7 +104,7 @@ docker compose up -d
 
 ```bash
 mkdir what-leaves-home && cd what-leaves-home
-curl -fsSLO https://raw.githubusercontent.com/swapanshridhar/what-leaves-home/v0.8.0/compose.with-adguard.yaml
+curl -fsSLO https://raw.githubusercontent.com/swapanshridhar/what-leaves-home/v0.8.1/compose.with-adguard.yaml
 docker compose -f compose.with-adguard.yaml up -d
 ```
 
@@ -222,10 +222,10 @@ Every app on one server shares its address, so the DNS log alone can't tell Jell
 # With Docker: the published agent image, pinned to this version
 docker run -d --name whatleaves-agent --restart unless-stopped --network host --pid host --cap-add SYS_PTRACE \
   -v /var/run/docker.sock:/var/run/docker.sock:ro -e WL_URL=http://<this app> -e WL_TOKEN=<token> \
-  ghcr.io/swapanshridhar/what-leaves-home-agent:0.8.0
+  ghcr.io/swapanshridhar/what-leaves-home-agent:0.8.1
 
 # Or as a system service (needs python3)
-curl -fsSL --proto '=https' https://raw.githubusercontent.com/swapanshridhar/what-leaves-home/v0.8.0/whatleaves/static/install-agent.sh \
+curl -fsSL --proto '=https' https://raw.githubusercontent.com/swapanshridhar/what-leaves-home/v0.8.1/whatleaves/static/install-agent.sh \
   | sudo WL_URL=http://<this app> WL_TOKEN=<token> sh
 ```
 

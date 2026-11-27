@@ -6,7 +6,7 @@
 # SHA-256 matches the one below, so a changed copy is refused.
 # It needs python3. It reads only: the connection table and which process owns each connection.
 set -eu
-AGENT_VERSION=0.8.0
+AGENT_VERSION=0.8.1
 AGENT_SHA256=3d4be6f65da51ac372721d1746b69a4916cd0ce755b7f5fdbf839217c8732dc1
 AGENT_FROM="${WL_AGENT_FROM:-https://raw.githubusercontent.com/swapanshridhar/what-leaves-home/v$AGENT_VERSION/whatleaves/static}"
 : "${WL_URL:?Set WL_URL to What Leaves Home's address}"

@@ -168,6 +168,7 @@ async function route() {
     else if (view === "settings") { setTab(""); main.innerHTML = renderSettings(); wireSettings(); }
     else if (view === "connect") { setTab(""); main.innerHTML = renderConnect(); wireConnect(); }
     else if (view === "start") { setTab(""); main.innerHTML = renderStart(); wireStart(); }
+    else if (view === "no-filter") { setTab(""); main.innerHTML = renderNoFilter(); wireCopy(); }
     else if (view === "first-device") { setTab(""); main.innerHTML = renderFirstDevice(); wireFirstDevice(); }
     else if (view === "visible") { setTab(""); main.innerHTML = renderVisible(overviewCache || await loadOverview()); }
     else location.hash = "#/";
@@ -601,7 +602,8 @@ function renderStart() {
     <p class="lede">You can change this later in Settings. Nothing here changes your network.</p>
     <div class="choices">
       ${bundle ? choice("w-bundle", ICON.dns, "Set up AdGuard and my first device", "You installed AdGuard Home together with this app. Two short steps, then you'll see your first device.") : ""}
-      ${!bundle ? choice("w-connect", ICON.dns, "Connect my AdGuard Home", "You already run AdGuard Home. Enter its address and login, test, done.") : ""}
+      ${!bundle ? choice("w-connect", ICON.dns, "Connect my AdGuard Home or Pi-hole", "You already run one. Enter its address and login, test, done.") : ""}
+      ${!bundle ? choice("w-none", ICON.home, "I don't have one yet", "Switch to the version that brings AdGuard Home with it: three commands.") : ""}
       ${!bundle ? choice("w-demo", ICON.media, "Look around the demo first", "Made-up devices, every kind of result. Connect yours whenever you like.") : ""}
     </div></section>`;
 }
@@ -609,6 +611,24 @@ function wireStart() {
   $("#w-bundle")?.addEventListener("click", () => (location.hash = "#/first-device"));
   $("#w-connect")?.addEventListener("click", () => { sessionStorageSet("wl-after-connect", "first-device"); location.hash = "#/connect"; });
   $("#w-demo")?.addEventListener("click", async () => { await wizardDone(); location.hash = "#/"; });
+  $("#w-none")?.addEventListener("click", () => (location.hash = "#/no-filter"));
+}
+// No DNS filter yet: the version that installs AdGuard Home comes from a different compose file,
+// so the switch happens where it was installed. "down -v" first: the bundle runs as a capability-less
+// root that can't write into this install's data volume, and on a first visit there's nothing in it.
+function renderNoFilter() {
+  const repo = statusCache?.repo || "swapanshridhar/what-leaves-home", v = statusCache?.version || "";
+  const file = `https://raw.githubusercontent.com/${repo}/v${v}/compose.with-adguard.yaml`;
+  const cmd = `docker compose down -v\ncurl -fsSLO ${file}\ndocker compose -f compose.with-adguard.yaml up -d`;
+  return `<section class="wizard"><div class="step">No DNS filter yet</div><h1>Get AdGuard Home with it</h1>
+    <p class="lede">What Leaves Home reads a DNS filter's log. If you don't run one, the version that brings AdGuard Home sets it up next to this app, already connected. Run these in the folder where you installed this one.</p>
+    <div class="card pad" style="margin-top:18px">${cmdBlock("Switch to the version with AdGuard Home", cmd,
+      "The first line removes this install and its data. On a first visit there's nothing in it yet.")}
+      <ol class="why" style="margin-top:14px">
+        <li>Open AdGuard Home at port 3000 of this machine and finish its short setup: keep its web page on port 3000 and DNS on port 53.</li>
+        <li>Come back to this page. It asks for a new setup code (<span class="mono">docker logs whatleaves</span>), then walks you through your first device.</li>
+      </ol></div>
+    <p style="margin-top:18px"><a href="#/start">← Back</a></p></section>`;
 }
 function sessionStorageSet(k, v) { try { sessionStorage.setItem(k, v); } catch (e) { /* fine */ } }
 function sessionStorageTake(k) { try { const v = sessionStorage.getItem(k); sessionStorage.removeItem(k); return v; } catch (e) { return null; } }
