@@ -14,6 +14,11 @@
   <a href="#privacy"><img alt="Telemetry: none" src="https://img.shields.io/badge/telemetry-none-brightgreen"></a>
 </p>
 
+<p align="center">
+  <a href="https://swapanshridhar.github.io/what-leaves-home/walkthrough.html"><img src="docs/walkthrough.png" width="640" alt="Watch the 2-minute walkthrough: from GitHub to your first device"></a>
+  <br><sub><a href="https://swapanshridhar.github.io/what-leaves-home/walkthrough.html">Watch the 2-minute walkthrough</a>: from GitHub to your first device.</sub>
+</p>
+
 What Leaves Home shows what each device, and each app on your home servers, talks to on the internet: which companies, from which countries, how much data, and whether any of it is ads or tracking. It works on top of the AdGuard Home or Pi-hole you already run, changes nothing on your network, and keeps everything on your own machine.
 
 Status: early (0.8). Grades are a first version: simple rules, always shown with their reasons.

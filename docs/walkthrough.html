@@ -1,0 +1,45 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+<title>What Leaves Home: the 2-minute walkthrough</title>
+<meta name="description" content="From GitHub to your first device: what you need, the one-file install, the first visit, and what a home looks like after a day.">
+<link rel="icon" href="logo.svg">
+<!-- Served with the live demo. The video comes from the v0.8.1 release, fetched when the site is built. Nothing loads from elsewhere. -->
+<style>
+:root{--paper:#F3EEE4;--ink:#151515;--muted:#6B6358;--hi:#FFD43B}
+*{box-sizing:border-box;margin:0;padding:0}
+body{background:var(--paper);color:var(--ink);font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Helvetica,Arial,sans-serif;-webkit-font-smoothing:antialiased;padding:28px 16px 48px}
+main{max-width:1040px;margin:0 auto}
+header{display:flex;align-items:center;gap:14px;margin-bottom:22px}
+header img{width:44px;height:44px}
+header b{font-size:22px}
+h1{font-size:clamp(28px,4.5vw,44px);line-height:1.1;letter-spacing:-.02em;margin-bottom:8px}
+h1 i{font-style:normal;background:var(--hi);padding:0 8px}
+p.lede{color:var(--muted);font-size:18px;margin-bottom:20px}
+video{width:100%;display:block;border:4px solid var(--ink);border-radius:16px;box-shadow:10px 10px 0 var(--ink);background:#000}
+.chap{display:flex;flex-wrap:wrap;gap:8px;margin:26px 0 22px}
+.chap button{font:inherit;font-size:15px;font-weight:700;padding:7px 14px;border-radius:999px;border:3px solid var(--ink);background:#fff;cursor:pointer}
+.chap button span{color:var(--muted);font-weight:600;margin-right:6px}
+.cta{display:flex;flex-wrap:wrap;gap:12px}
+.cta a{font-weight:800;text-decoration:none;color:var(--ink);padding:12px 20px;border-radius:14px;border:3px solid var(--ink);box-shadow:6px 6px 0 var(--ink);background:#fff}
+.cta a.go{background:var(--hi)}
+small{display:block;margin-top:22px;color:var(--muted)}
+</style></head><body><main>
+<header><img src="logo.svg" alt=""><b>What Leaves Home</b></header>
+<h1>From GitHub to your <i>first device</i></h1>
+<p class="lede">The whole journey in two minutes: what you need, the one-file install, the first visit, and what a home looks like after a day.</p>
+<video id="v" controls preload="metadata" playsinline poster="walkthrough.png" src="walkthrough.mp4"></video>
+<div class="chap" id="chap"></div>
+<div class="cta"><a class="go" href="https://github.com/swapanshridhar/what-leaves-home#install">Install it</a><a href="./">Try the live demo</a><a href="https://github.com/swapanshridhar/what-leaves-home">GitHub</a></div>
+<small>Every app screen in it is real: a fresh install on a laptop, and a home-server install at its first visit. The "after a day" tour uses the demo's made-up home. The voice is an AI clone of the author's own voice. Music: Smart Sparks by kissan4 (Pixabay).</small>
+</main>
+<script>
+const C = [[0, "What it is"], [14, "What you need"], [29, "Install"], [45, "First visit"], [66, "Your first device"], [83, "What it finds"], [107, "Home-server apps, and its own traffic"]];
+const v = document.getElementById("v"), box = document.getElementById("chap");
+for (const [t, name] of C) {
+  const b = document.createElement("button");
+  b.innerHTML = `<span>${Math.floor(t / 60)}:${String(t % 60).padStart(2, "0")}</span>${name}`;
+  b.onclick = () => { v.currentTime = t; v.play(); };
+  box.appendChild(b);
+}
+</script>
+</body></html>
